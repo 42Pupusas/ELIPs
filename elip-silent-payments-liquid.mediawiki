@@ -230,40 +230,18 @@ unchanged: the server publishes a per-transaction '''partial tweak'''
 <code>T = input_hash · A</code> (no scan key needed), and the client completes
 <code>S = b_scan · T</code> and runs the BIP-352 gap-limit match. '''[BIP-352]''' On a
 match it derives <code>bk_k</code> to unblind and <code>b_spend + t_k</code> to spend.
-The Liquid-specific divergences are below.
-
-===Matching on Liquid omits compact filters '''[Liquid] [Choice]'''===
-
-In the Bitcoin index-server model the client cannot recompute an output's
-scriptPubKey from chain data without first guessing the tweak, so it uses
-[https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki BIP-158] compact
-block filters to test candidate scripts and then downloads only matching blocks.
-
-On Liquid this intermediate filtering step is unnecessary: Confidential Transactions
-blind the asset, amount, and nonce of an output but '''not its scriptPubKey''', so
-output scripts are available in the clear from ordinary block or transaction data.
-A client that has derived a candidate script can therefore match it directly against
-the transaction outputs it already retrieves. Accordingly this draft does not require
-BIP-158 filters; an implementation MAY still use a filter or other index as an
-optimization, but it is not part of the protocol. This is the one substantive
-deviation from the Bitcoin index-server model, and it is forced by — and made safe
-by — Liquid's public output scripts.
-
-===Server interface '''[Choice]'''===
-
-The protocol requires only that, for each block height, a client can obtain the list
-of partial tweaks <code>T</code> for that block's silent-payment-eligible
-transactions. An abstract client interface is therefore minimal:
+The only divergence is that the BIP-158 compact-filter step is unnecessary on Liquid
+'''[Liquid] [Choice]''': Confidential Transactions blind an output's asset, amount,
+and nonce but '''not its scriptPubKey''', so a client matches its derived candidate
+scripts directly against the public output scripts it already retrieves. Filters MAY
+still be used as an optimization but are not part of the protocol. The protocol
+therefore requires only that, per block height, a client can obtain that block's
+partial tweaks; the concrete wire format is left to a companion specification or
+existing Liquid indexing infrastructure. '''[Choice]'''
 
 <pre>
 tweaks(block_height) -> [ serP(T_1), serP(T_2), ... ]
 </pre>
-
-A concrete wire format is intentionally left to a companion specification or to
-existing Liquid indexing infrastructure; for example a REST endpoint returning an
-array of compressed points per height, or an extension of an existing
-descriptor-oriented indexing service. The cryptographic protocol in this document is
-independent of that choice.
 
 ==Spending a received output '''[Liquid]'''==
 
