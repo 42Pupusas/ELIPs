@@ -72,7 +72,7 @@ To pay the address, a sender:
 # aggregates the private keys of its eligible transaction inputs into a single scalar <code>a</code> and forms <code>A = a·G</code> '''[BIP-352]''';
 # computes a transaction-bound <code>input_hash</code> and an ECDH shared secret <code>S</code> with the receiver's scan key '''[BIP-352]''';
 # derives, for output index <code>k</code>, a spend public key <code>P_k</code> that only the receiver can later re-derive '''[BIP-352]''';
-# places <code>P_k</code> in a Liquid output of the deployed type '''[Liquid]''', and blinds that output's asset and amount to a blinding key that is itself derived from <code>S</code> '''[Liquid]'''.
+# places <code>P_k</code> in a Taproot (P2TR) output '''[BIP-352]''', and blinds that output's asset and amount to a blinding key that is itself derived from <code>S</code> '''[Liquid]'''.
 
 To receive, the receiver re-derives the candidate spend keys and output scripts from
 <code>input_hash·A</code> and its scan key, matches them against the transaction's
@@ -104,73 +104,28 @@ A distinct, network-specific HRP (rather than Bitcoin's <code>sp</code>/<code>ts
 ensures a Liquid silent-payment address can never be confused with a Bitcoin one,
 nor a mainnet address with a testnet one.
 
-===Input aggregation and the input hash===
+===Reused from BIP-352 unchanged '''[BIP-352]'''===
 
-Input aggregation (<code>a</code>, <code>A</code>) and the <code>input_hash</code> are
-computed exactly as in BIP-352, over the '''eligible''' inputs defined below. '''[BIP-352]'''
-The only Liquid-specific note on encoding is that <code>outpoint_L</code> — the
-lexicographically smallest input outpoint used in the input hash — is encoded as in a
-transaction (32-byte txid in internal byte order followed by the 4-byte little-endian
-index), which is identical to the Elements consensus encoding of an outpoint.
-
-====Eligible inputs '''[Liquid] [Choice]'''====
-
-An input is eligible to contribute to <code>a</code> (sender) and <code>A</code>
-(scanner) if and only if it is spent by a single public key whose value is
-unambiguously recoverable from the input, and it is not an issuance, reissuance, or
-peg-in input. Concretely this draft includes:
-
-* P2WPKH (<code>elwpkh</code>) — the dominant Liquid output type — taking the public key from the witness;
-* P2SH-wrapped P2WPKH — likewise;
-* P2PKH — taking the public key from the scriptSig.
-
-and excludes issuance/reissuance inputs, peg-in inputs, the fee output (which is
-never an input), and any input whose signing public key is not uniquely determined.
-
-This mirrors BIP-352's eligible-input set, with two Liquid-specific notes. First, the
-signing public key used here is the one revealed in the witness/scriptSig and is
-independent of CT blinding, so aggregation proceeds exactly as on Bitcoin. Second,
-BIP-352's even-Y negation of Taproot input keys does '''not''' apply, since none of
-the eligible types above are Taproot key-path spends; keys are summed directly. The
-rule would apply unchanged should Liquid Taproot key-path spends become eligible in a
-future version.
-
-===Shared secret and output spend key '''[BIP-352]'''===
-
-The ECDH shared secret <code>S</code>, the per-output tweak <code>t_k</code>, and the
-output spend key <code>P_k = B_spend + t_k·G</code> are computed exactly as in BIP-352;
-the receiver spends a recognized output at index <code>k</code> with the private key
-<code>b_spend + t_k (mod n)</code>. The symbols <code>S</code> and <code>k</code> are
-restated here only because the Liquid-specific blinding key below is derived from them:
+Because silent-payment outputs are Taproot, the entire derivation and output path is
+BIP-352 verbatim; the symbols below are restated only because the Liquid blinding key
+(next section) is built from <code>S</code> and <code>k</code>:
 
 <pre>
+input aggregation: a = Σ a_i,  A = a·G  (eligible inputs per BIP-352)
+input_hash = int(hashBIP0352/Inputs( outpoint_L || serP(A) )) mod n
 S   = input_hash · a · B_scan   (sender)  =  input_hash · b_scan · A   (receiver)
 t_k = int(hashBIP0352/SharedSecret( serP(S) || ser32(k) )) mod n
 P_k = B_spend + t_k·G
+scriptPubKey = OP_1 <x_only(P_k)>          (P_k used directly; no script tree, no taptweak)
 </pre>
 
-===Output representation '''[Liquid] [Choice]'''===
-
-In BIP-352 the output is a P2TR output whose key is <code>P_k</code>, visible in the
-clear. Liquid does not deploy Taproot in general wallet usage, and the overwhelmingly
-common Liquid output type is <code>elwpkh</code> (version-0 witness public-key hash).
-This draft therefore defines a silent-payment output as a '''confidential
-version-0 P2WPKH output''' whose witness program is <code>HASH160(serP(P_k))</code>:
-
-<pre>
-scriptPubKey = OP_0 <HASH160(serP(P_k))>
-</pre>
-
-with the asset and amount blinded as in any CT output (see the next section).
-
-A consequence is that the value an index server publishes per transaction is a
-'''compressed''' point (or equivalently the candidate scripts derived from it),
-rather than the x-only key used in the Bitcoin index-server model.
-
-Emulating Taproot via Liquid's tapscript support was considered and is deferred:
-it adds deployment surface for negligible benefit given current Liquid usage. A
-future version MAY define a Taproot output type, at which point the BIP-352 x-only
-conventions would apply to it directly.
+The eligible-input set (P2TR key-path, P2WPKH, P2SH-P2WPKH, P2PKH), the even-Y rule for
+Taproot keys, gap-limited scanning, and the x-only output key are all exactly as in
+BIP-352 — so a silent-payment output is itself eligible as an input to a later one.
+Two Liquid notes only: <code>outpoint_L</code> uses the Elements consensus outpoint
+encoding (32-byte txid, internal order, then 4-byte little-endian vout) '''[Liquid]''',
+and the asset and amount are blinded as in any CT output '''[Liquid]''' — see the next
+section. The scriptPubKey itself is identical to a BIP-352 output.
 
 ===Output blinding key '''[Liquid]'''===
 
@@ -243,19 +198,14 @@ existing Liquid indexing infrastructure. '''[Choice]'''
 tweaks(block_height) -> [ serP(T_1), serP(T_2), ... ]
 </pre>
 
-==Spending a received output '''[Liquid]'''==
+==Spending a received output '''[BIP-352]'''==
 
-A received silent-payment output is controlled by the scalar
-<code>d = b_spend + t_k (+ label_tweak_m)</code>, which is generally '''not''' a
-BIP-32-derivable key. Signing such an input therefore requires a signer that accepts
-a base key and an additive tweak (or equivalently the tweaked key directly), rather
-than only keys located at a derivation path.
-
-This is a software-signer capability: deriving <code>d</code> and producing an
-ordinary signature for the corresponding P2WPKH input is straightforward and uses no
-new cryptography. It is the only signer-side change Silent Payments require on
-Liquid, and it is sufficient for a wallet to send to, receive from, and spend
-silent-payment outputs.
+Spending is an ordinary BIP-340 Taproot key-path spend with
+<code>d = b_spend + t_k (+ label_tweak_m)</code> (even-Y normalized), exactly as in
+BIP-352. Since <code>d</code> is not a BIP-32-derivable key, the only signer-side
+requirement is a signer that accepts a base key plus an additive tweak rather than only
+keys at a derivation path — a software-signer capability, sufficient to send, receive,
+and spend silent-payment outputs.
 
 Hardware-signer support is a separate matter. Common hardware-signer protocols
 identify the signing key by a registered descriptor or derivation path and expose no
@@ -295,7 +245,7 @@ A derived silent-payment output (for index k):
 SilentPaymentOutput {
     spend_pubkey:  P_k = B_spend + t_k·G
     blinding_pubkey: BK_k = bk_k·G
-    // scriptPubKey = OP_0 <HASH160(serP(P_k))>, asset/amount blinded to BK_k
+    // scriptPubKey = OP_1 <x_only(P_k)>, asset/amount blinded to BK_k
 }
 </pre>
 
@@ -318,7 +268,7 @@ b_scan  = 1111111111111111111111111111111111111111111111111111111111111111
 b_spend = 2222222222222222222222222222222222222222222222222222222222222222
 </pre>
 
-Two eligible inputs, each a P2WPKH spend, with private keys and outpoints:
+Two eligible inputs (any BIP-352-eligible type), with private keys and outpoints:
 
 <pre>
 input 0: priv = 3131...31 (0x31 x32), outpoint txid = 1010...10 (0x10 x32), vout = 0
@@ -340,14 +290,14 @@ k = 0:
   BK_k (blinding pub) = 0344e1289497e6da66fde710d2f38de053fc07355e405524401d7d609df5a1a8cc
   bk_k (blinding priv) = 70ab8897b64bd21b427339ff4d014b883191ef6425862246c53bfc27a59aa3f0
   spend priv (b_spend + t_k) = f03c436d2cd67ae1fecf7d88a38aa3a03c0abea43feaf6da8eb71e2e3a866bda
-  scriptPubKey = 0014aad1065758c02efbf32e797f108007741068eb25
+  scriptPubKey = 5120a29d9716417c964ca9e477343e71ffe730a4991a3eaad668eabec84e9feb7931
 
 k = 1:
   P_k (spend pubkey) = 0229d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
   BK_k (blinding pub) = 03efdeda770ccdbe8bf466fba48bfd2b2c436ab0c04658fc6d6c277de5078129fa
   bk_k (blinding priv) = 945ba73a9804f62089c7d2ffdc079031031f0aebab372cec17ef9c110ebceb10
   spend priv (b_spend + t_k) = 9eff3472230fc83ef5ea8f8c80401c4eecd595a048bd2482a107d3a49baa5a58
-  scriptPubKey = 001481bc88e345e0a585da4ee2157eef9e18bff416cf
+  scriptPubKey = 512029d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
 </pre>
 
 The unlabeled mainnet (HRP <code>lq</code>) address for these keys:
@@ -369,8 +319,8 @@ unblinds correctly under <code>bk_k</code>, and fails to unblind under any other
 This document defines a new, opt-in address type and output convention. It introduces
 no consensus change and does not affect existing addresses, descriptors, or
 transactions. Wallets that do not implement it are unaffected; a silent-payment
-output, once created, is an ordinary confidential P2WPKH output on the chain and is
-spent by an ordinary signature, so existing relay and validation rules apply
+output, once created, is an ordinary confidential Taproot output on the chain and is
+spent by an ordinary key-path signature, so existing relay and validation rules apply
 unchanged.
 
 Discovering and spending silent-payment outputs requires wallet support (scanning and
@@ -380,11 +330,12 @@ outputs are usable with software signing.
 
 ==Reference Implementation==
 
-A reference implementation demonstrating address encoding, input aggregation,
-sender output derivation, the shared-secret-derived blinding key, confidential output
-construction and recovery, the tweak-server scan flow, labels, and tweak-aware
-signing, together with the test vectors and adversarial tests referenced above, is
-expected to accompany this proposal prior to a status of Final.
+A reference implementation against the Liquid Wallet Kit (LWK) covers address
+encoding, input aggregation, sender output derivation, the shared-secret-derived
+blinding key, confidential Taproot output construction and recovery, the tweak-server
+scan flow, labels, and tweak-aware BIP-340 key-path signing (including even-Y
+normalization), together with the test vectors and the adversarial property tests
+referenced above. It reproduces the test vectors in this document byte-for-byte.
 
 ==Acknowledgements==
 
