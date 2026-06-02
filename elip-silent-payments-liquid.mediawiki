@@ -91,18 +91,24 @@ network-specific human-readable part. '''[Liquid] [Choice]''' This draft uses:
 {| class="wikitable"
 ! Network !! HRP
 |-
-| Liquid (mainnet) || <code>lq</code>
+| Liquid (mainnet) || <code>lqsp</code>
 |-
-| Liquid testnet / regtest || <code>tlq</code>
+| Liquid testnet / regtest || <code>tlqsp</code>
 |}
 
 and version symbol <code>q</code> (the Bech32 character for value 0), denoting
 version 0. As in BIP-352, the 90-character Bech32 length limit does '''not''' apply
 to silent-payment addresses. '''[BIP-352]'''
 
-A distinct, network-specific HRP (rather than Bitcoin's <code>sp</code>/<code>tsp</code>)
-ensures a Liquid silent-payment address can never be confused with a Bitcoin one,
-nor a mainnet address with a testnet one.
+A distinct, network-specific HRP is required: it must differ both from Bitcoin's
+silent-payment HRP (<code>sp</code>/<code>tsp</code>) '''and''' from the HRPs of
+ordinary Liquid addresses — in particular Liquid's '''confidential''' addresses use
+<code>lq</code>/<code>tlq</code> (blech32), so a silent-payment HRP of <code>lq</code>
+would collide with them. The <code>lqsp</code>/<code>tlqsp</code> HRPs are distinct
+from every existing Liquid address HRP (<code>ex</code>/<code>tex</code> for
+unconfidential, <code>lq</code>/<code>tlq</code> for confidential) as well as from
+Bitcoin's, so a silent-payment address can never be confused with a Bitcoin one, with
+a native Liquid one, nor a mainnet address with a testnet one.
 
 ===Reused from BIP-352 unchanged '''[BIP-352]'''===
 
@@ -120,8 +126,9 @@ scriptPubKey = OP_1 <x_only(P_k)>          (P_k used directly; no script tree, n
 </pre>
 
 The eligible-input set (P2TR key-path, P2WPKH, P2SH-P2WPKH, P2PKH), the even-Y rule for
-Taproot keys, gap-limited scanning, and the x-only output key are all exactly as in
-BIP-352 — so a silent-payment output is itself eligible as an input to a later one.
+Taproot keys, gap-limited scanning, labels (including the change label <code>m = 0</code>),
+and the x-only output key are all exactly as in BIP-352 — so a silent-payment output is
+itself eligible as an input to a later one.
 Two Liquid notes only: <code>outpoint_L</code> uses the Elements consensus outpoint
 encoding (32-byte txid, internal order, then 4-byte little-endian vout) '''[Liquid]''',
 and the asset and amount are blinded as in any CT output '''[Liquid]''' — see the next
@@ -160,22 +167,15 @@ Because <code>bk_k</code> and <code>t_k</code> are outputs of a random oracle (a
 tagged hash) evaluated on '''disjoint domains''' over the same secret <code>S</code>,
 they are independent: knowledge of one does not assist in recovering the other or
 <code>S</code>. The domain tag <code>LiquidSilentPayments/Blind</code> MUST differ
-from the BIP-352 spend domain <code>BIP0352/SharedSecret</code>.
+from the BIP-352 spend domain <code>BIP0352/SharedSecret</code>. The blinding key is
+also unaffected by BIP-352 labels: it depends only on <code>S</code> and <code>k</code>,
+not on the labeled spend key.
 
 Two alternatives were rejected. Publishing a single fixed blinding key in the
 address would link all of a receiver's outputs through a common blinding key,
 negating the unlinkability Silent Payments provides. Exchanging a per-output blinding
 key out of band would reintroduce the interaction Silent Payments is designed to
 eliminate.
-
-===Labels '''[BIP-352]'''===
-
-Labels are supported exactly as in BIP-352 and need no Liquid adaptation. The only
-Liquid-specific note is that the output blinding key (below) is unaffected by labels:
-it depends only on <code>S</code> and <code>k</code>, not on the labeled spend key.
-
-Implementations MAY support only the change label (<code>m = 0</code>) in a first
-version. '''[Choice]'''
 
 ==Light-client receive: the tweak server model==
 
@@ -300,10 +300,10 @@ k = 1:
   scriptPubKey = 512029d77654023af267dbe9cb7ff1956f947c816f203494381308387168fb010c92
 </pre>
 
-The unlabeled mainnet (HRP <code>lq</code>) address for these keys:
+The unlabeled mainnet (HRP <code>lqsp</code>) address for these keys:
 
 <pre>
-lq1qqd8n2k7uklxq4aegau7vawtptkgxsja4kt99lpv6krctwpq8tpc65qjxd4lu4etruh9sngx3su9mtqp5fqzxz7re59y5nnez9p03ht3lyu7836wf
+lqsp1qqd8n2k7uklxq4aegau7vawtptkgxsja4kt99lpv6krctwpq8tpc65qjxd4lu4etruh9sngx3su9mtqp5fqzxz7re59y5nnez9p03ht3lyudcfhfe
 </pre>
 
 A conforming implementation MUST reproduce <code>A</code>, <code>input_hash</code>,
