@@ -15,21 +15,14 @@
 
 ===Abstract===
 
-This document specifies Silent Payments for the Liquid Network. Silent Payments,
-defined for Bitcoin in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP-352],
-allow a receiver to publish a single static address from which a sender derives a
-fresh, unlinkable on-chain output for every payment, without any interaction and
-without leaving a reusable public identifier on the chain.
-
-Applying this construction to Liquid requires reconciling it with Confidential
-Transactions (CT), in which every output additionally commits to a blinded asset
-and amount and carries an ECDH nonce that allows the intended receiver to recover
-those values. This document reuses the BIP-352 key-derivation core unchanged, adapts
-the output representation to Liquid's deployed output types, and introduces a
-deterministic derivation of the per-output blinding key from the silent-payment
-shared secret so that a confidential output can be both discovered and unblinded by
-the receiver without any additional round trip. It further specifies a light-client
-receive flow following the "tweak server" model of the
+This document specifies Silent Payments for the Liquid Network, building on
+[https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki BIP-352]. It assumes
+familiarity with BIP-352 and describes only what Liquid requires to differ: the
+BIP-352 key-derivation core is reused unchanged, while three things are adapted to
+Confidential Transactions (CT) and Liquid's deployed output types — the output
+representation, a per-output blinding key derived from the silent-payment shared
+secret (so a confidential output can be discovered and unblinded non-interactively),
+and a light-client receive flow following the "tweak server" model of the
 [https://github.com/silent-payments/BIP0352-index-server-specification BIP-352 index server specification].
 
 ===Copyright===
@@ -38,22 +31,17 @@ This document is licensed under the 3-clause BSD license.
 
 ===Motivation===
 
-Address reuse harms the privacy of all participants on a transparent or
-semi-transparent ledger. Confidential Transactions hide the asset and amount of a
-Liquid output, but the output script — and therefore an address that is reused — is
-public. A receiver who wishes to accept many payments to a published address
-(donations, a point-of-sale identifier, a recurring counterparty) must today either
-reuse an address, linking those payments, or run an interactive protocol to hand out
-fresh addresses.
+Confidential Transactions hide a Liquid output's asset and amount, but its script —
+and so any reused address — is public. A receiver accepting many payments to one
+published address must today either reuse an address, linking those payments, or run
+an interactive protocol to hand out fresh ones.
 
-Silent Payments remove this trade-off: the receiver publishes one static address,
-and each sender independently derives a distinct output that only the receiver can
-recognize. On Liquid this is particularly valuable, because it composes naturally
-with CT — the payment graph gains the unlinkability of Silent Payments while the
-amounts retain the confidentiality of CT.
-
-This document defines how to construct and recognize such outputs on Liquid so that
-independent implementations interoperate.
+Silent Payments remove this trade-off, and compose naturally with CT: the receiver
+publishes one static address, each sender independently derives a distinct output
+only the receiver can recognize, and the payment graph gains the unlinkability of
+Silent Payments while amounts keep the confidentiality of CT. This document defines
+how to construct and recognize such outputs on Liquid so that independent
+implementations interoperate.
 
 ==Conventions and Provenance of Each Rule==
 
@@ -61,7 +49,7 @@ Throughout this document, every normative rule is tagged to make its origin expl
 
 * '''[BIP-352]''' — the rule is taken unchanged from BIP-352. Implementations SHOULD reuse existing, reviewed BIP-352 logic for these parts.
 * '''[Liquid]''' — the rule is an adaptation made necessary by a structural difference between Liquid and Bitcoin (most importantly, Confidential Transactions and Liquid's deployed output types). These are the substantive technical contributions of this document.
-* '''[Choice]''' — the rule reflects a design decision for which alternatives exist. Where this document states a value or behavior under a [Choice] tag, that value is the '''preferred''' option of this draft; the rationale and the alternatives considered are recorded in the [[#Rationale|Rationale]] section. These are the points on which reviewer input is most actively sought.
+* '''[Choice]''' — the rule reflects a design decision for which alternatives exist. Where this document states a value or behavior under a [Choice] tag, that value is the '''preferred''' option of this draft. These are the points on which reviewer input is most actively sought.
 
 Notation follows BIP-352:
 
@@ -86,21 +74,15 @@ To pay the address, a sender:
 # derives, for output index <code>k</code>, a spend public key <code>P_k</code> that only the receiver can later re-derive '''[BIP-352]''';
 # places <code>P_k</code> in a Liquid output of the deployed type '''[Liquid]''', and blinds that output's asset and amount to a blinding key that is itself derived from <code>S</code> '''[Liquid]'''.
 
-To receive, the receiver (or a light client acting on its behalf) obtains, for each
-candidate transaction, the value <code>input_hash·A</code>, completes the shared
-secret with its scan key, re-derives the candidate spend keys and their output
-scripts, matches them against the transaction's outputs, and — on a match — derives
-the same blinding key to unblind the asset and amount and the spend key to later
-spend the output.
-
-The remainder of this section defines each step.
+To receive, the receiver re-derives the candidate spend keys and output scripts from
+<code>input_hash·A</code> and its scan key, matches them against the transaction's
+outputs, and on a match derives the blinding key to unblind and the spend key to spend.
 
 ===Receiver keys and address===
 
-The receiver's scan and spend key pairs are independent secp256k1 key pairs. '''[BIP-352]'''
-Their derivation from a seed is left to the wallet; a deterministic scheme analogous
-to BIP-352's (a dedicated purpose under BIP-32) is RECOMMENDED but out of scope for
-interoperability, since only the public keys are transmitted. '''[Choice]'''
+The scan and spend key pairs are independent secp256k1 key pairs as in BIP-352. '''[BIP-352]'''
+Seed derivation is left to the wallet (a BIP-32 scheme analogous to BIP-352's is
+RECOMMENDED), since only the public keys are transmitted. '''[Choice]'''
 
 The address is the Bech32m '''[BIP-352]''' encoding of a version symbol followed by
 the payload <code>serP(B_scan) || serP(B_spend)</code> (66 bytes), with a
@@ -124,24 +106,12 @@ nor a mainnet address with a testnet one.
 
 ===Input aggregation and the input hash===
 
-A sender forms the aggregated input private key by summing the private keys of all
-'''eligible''' inputs (defined below): '''[BIP-352]'''
-
-<pre>
-a = a_1 + a_2 + ... + a_u   (mod n)
-A = a·G
-</pre>
-
-If <code>a = 0</code> the sender MUST abort: no payment is defined. '''[BIP-352]'''
-
-Let <code>outpoint_L</code> be the lexicographically smallest input outpoint, encoded
-as in a transaction (32-byte txid in internal byte order followed by the 4-byte
-little-endian index — identical to the Elements consensus encoding of an outpoint).
-The input hash is: '''[BIP-352]'''
-
-<pre>
-input_hash = int(hashBIP0352/Inputs( outpoint_L || serP(A) )) mod n
-</pre>
+Input aggregation (<code>a</code>, <code>A</code>) and the <code>input_hash</code> are
+computed exactly as in BIP-352, over the '''eligible''' inputs defined below. '''[BIP-352]'''
+The only Liquid-specific note on encoding is that <code>outpoint_L</code> — the
+lexicographically smallest input outpoint used in the input hash — is encoded as in a
+transaction (32-byte txid in internal byte order followed by the 4-byte little-endian
+index), which is identical to the Elements consensus encoding of an outpoint.
 
 ====Eligible inputs '''[Liquid] [Choice]'''====
 
@@ -157,35 +127,27 @@ peg-in input. Concretely this draft includes:
 and excludes issuance/reissuance inputs, peg-in inputs, the fee output (which is
 never an input), and any input whose signing public key is not uniquely determined.
 
-This mirrors BIP-352's eligible-input set with two Liquid-specific notes. First,
-Liquid blinds the asset and amount of an input's spent output, but the '''signing
-public key''' used here is the one revealed in the witness/scriptSig and is
-independent of blinding; aggregation therefore proceeds exactly as on Bitcoin.
-Second, BIP-352's requirement to negate Taproot input keys to an even Y-coordinate
-before summing does '''not''' apply here, because the eligible types above are not
-Taproot key-path spends; keys are summed directly. Should Liquid Taproot key-path
-spends become eligible in a future version, the BIP-352 even-Y rule would apply to
-them unchanged.
+This mirrors BIP-352's eligible-input set, with two Liquid-specific notes. First, the
+signing public key used here is the one revealed in the witness/scriptSig and is
+independent of CT blinding, so aggregation proceeds exactly as on Bitcoin. Second,
+BIP-352's even-Y negation of Taproot input keys does '''not''' apply, since none of
+the eligible types above are Taproot key-path spends; keys are summed directly. The
+rule would apply unchanged should Liquid Taproot key-path spends become eligible in a
+future version.
 
-===Shared secret and output spend key===
+===Shared secret and output spend key '''[BIP-352]'''===
 
-Both parties compute the same ECDH shared secret: '''[BIP-352]'''
-
-<pre>
-sender:    S = input_hash · a · B_scan
-receiver:  S = input_hash · b_scan · A
-</pre>
-
-For each output index <code>k = 0, 1, 2, ...</code> paid to the same recipient in the
-same transaction: '''[BIP-352]'''
+The ECDH shared secret <code>S</code>, the per-output tweak <code>t_k</code>, and the
+output spend key <code>P_k = B_spend + t_k·G</code> are computed exactly as in BIP-352;
+the receiver spends a recognized output at index <code>k</code> with the private key
+<code>b_spend + t_k (mod n)</code>. The symbols <code>S</code> and <code>k</code> are
+restated here only because the Liquid-specific blinding key below is derived from them:
 
 <pre>
+S   = input_hash · a · B_scan   (sender)  =  input_hash · b_scan · A   (receiver)
 t_k = int(hashBIP0352/SharedSecret( serP(S) || ser32(k) )) mod n
 P_k = B_spend + t_k·G
 </pre>
-
-The receiver, upon recognizing an output at index <code>k</code>, can spend it with
-the private key <code>b_spend + t_k (mod n)</code>. '''[BIP-352]'''
 
 ===Output representation '''[Liquid] [Choice]'''===
 
@@ -253,46 +215,22 @@ eliminate.
 
 ===Labels '''[BIP-352]'''===
 
-Labels are supported exactly as in BIP-352. For an integer label <code>m</code>:
-
-<pre>
-label_tweak_m = int(hashBIP0352/Label( ser256(b_scan) || ser32(m) )) mod n
-B_spend,m     = B_spend + label_tweak_m·G
-</pre>
-
-A labeled address encodes <code>B_spend,m</code> in place of <code>B_spend</code>; the
-scan key is unchanged. The output spend key becomes <code>B_spend,m + t_k·G</code> and
-is spendable with <code>b_spend + t_k + label_tweak_m (mod n)</code>. Label
-<code>m = 0</code> is reserved to mark change. The output blinding key is unaffected
-by labels: it depends only on <code>S</code> and <code>k</code>.
+Labels are supported exactly as in BIP-352 and need no Liquid adaptation. The only
+Liquid-specific note is that the output blinding key (below) is unaffected by labels:
+it depends only on <code>S</code> and <code>k</code>, not on the labeled spend key.
 
 Implementations MAY support only the change label (<code>m = 0</code>) in a first
 version. '''[Choice]'''
 
 ==Light-client receive: the tweak server model==
 
-The receive bounty for this work requires following the tweak-server model of the
-[https://github.com/silent-payments/BIP0352-index-server-specification BIP-352 index server specification].
-That model has a server compute, per silent-payment-eligible transaction, the
-'''partial tweak''' '''[BIP-352]''':
-
-<pre>
-T = input_hash · A
-</pre>
-
-a single public key that requires no scan key to compute. A light client fetches the
-partial tweaks for a block height, completes the shared secret locally with its scan
-key, and matches:
-
-<pre>
-S = b_scan · T   (= input_hash · b_scan · A)
-</pre>
-
-For each <code>k</code>, the client derives <code>P_k</code> and the candidate output
-script and checks it against the transaction's outputs, advancing <code>k</code>
-until a configurable number of consecutive misses (a gap limit), since multiple
-outputs may be paid to the same address. '''[BIP-352]''' On a match the client
-derives <code>bk_k</code> to unblind and <code>b_spend + t_k</code> to spend.
+The light-client receive flow follows the tweak-server model of the
+[https://github.com/silent-payments/BIP0352-index-server-specification BIP-352 index server specification]
+unchanged: the server publishes a per-transaction '''partial tweak'''
+<code>T = input_hash · A</code> (no scan key needed), and the client completes
+<code>S = b_scan · T</code> and runs the BIP-352 gap-limit match. '''[BIP-352]''' On a
+match it derives <code>bk_k</code> to unblind and <code>b_spend + t_k</code> to spend.
+The Liquid-specific divergences are below.
 
 ===Matching on Liquid omits compact filters '''[Liquid] [Choice]'''===
 
@@ -447,44 +385,6 @@ address above. Because the asset and amount blinding factors are randomized per
 output, the full blinded output is not byte-reproducible; the recovery property is
 instead stated as: an output blinded to <code>BK_k</code> by the construction above
 unblinds correctly under <code>bk_k</code>, and fails to unblind under any other key.
-
-==Rationale==
-
-'''Why reuse the BIP-352 key derivation unchanged.''' The spend-key path
-(<code>a</code>, <code>A</code>, <code>input_hash</code>, <code>S</code>,
-<code>t_k</code>, <code>P_k</code>, labels) is the reviewed cryptographic core of
-Silent Payments. Reusing it verbatim maximizes interoperability with existing
-implementations and tooling and confines the novel surface to the parts Liquid
-actually forces to differ.
-
-'''Why a confidential P2WPKH output rather than P2TR ([Choice]).''' Liquid wallets
-overwhelmingly use <code>elwpkh</code>; using the deployed type avoids a Taproot
-dependency and matches existing relay and wallet behavior. The cost is divergence
-from BIP-352's x-only convention and a compressed-point value in the index-server
-data. A future Taproot output type can be added without disturbing the rest of this
-specification.
-
-'''Why derive the blinding key from the shared secret ([Liquid]).''' This is the
-mechanism that lets a confidential output be both discovered and unblinded
-non-interactively. A dedicated hash domain keeps the blinding key independent of the
-spend key. The security of the scheme reduces to the random-oracle treatment of the
-tagged hash and the secrecy of <code>S</code> (which only the sender and the holder
-of <code>b_scan</code> can compute); a formal security argument and adversarial
-analysis are expected to accompany review. The construction has been validated by a
-reference implementation against the test vectors above, including adversarial cases
-(an observer holding all public data but not <code>b_scan</code> cannot unblind;
-incorrect keys never unblind; spend and blinding values are independent across many
-randomized cases).
-
-'''Why omit BIP-158 on Liquid ([Choice]).''' The index-server filter step exists to
-let a client test candidate scripts without downloading every block. Because Liquid
-output scripts are public, a client can match candidate scripts directly, so the
-filter step is redundant. This is a deliberate, narrowly-scoped deviation from the
-Bitcoin index-server model, justified entirely by Liquid's public scripts; it does
-not change the cryptographic protocol.
-
-'''Why a distinct, network-specific HRP ([Choice]).''' To make cross-chain and
-cross-network address confusion impossible.
 
 ==Backwards Compatibility==
 
