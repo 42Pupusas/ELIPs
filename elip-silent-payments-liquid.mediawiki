@@ -330,12 +330,11 @@ outputs are usable with software signing.
 
 ==Reference Implementation==
 
-A reference implementation against the Liquid Wallet Kit (LWK) covers address
-encoding, input aggregation, sender output derivation, the shared-secret-derived
-blinding key, confidential Taproot output construction and recovery, the tweak-server
-scan flow, labels, and tweak-aware BIP-340 key-path signing (including even-Y
-normalization), together with the test vectors and the adversarial property tests
-referenced above. It reproduces the test vectors in this document byte-for-byte.
+A reference implementation, built on the cryptographic primitives of the Liquid Wallet
+Kit (LWK), reproduces the test vectors in this document byte-for-byte and demonstrates
+that a confidential output blinded to the shared-secret-derived key can be unblinded
+non-interactively by the receiver. Wallet integration — scanning, signing, and
+transaction building — is left to implementations.
 
 ==Acknowledgements==
 
