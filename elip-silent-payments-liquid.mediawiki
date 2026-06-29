@@ -147,7 +147,10 @@ Wallets that don't implement this are unaffected.
 
 ==Reference Implementation==
 
-https://github.com/42Pupusas/elip-sp-reference/blob/main/src/lib.rs
+Two independent implementations that derive the test vectors above byte-for-byte:
+
+* Rust: https://github.com/42Pupusas/elip-sp-reference/blob/main/src/lib.rs
+* Python: https://github.com/42Pupusas/elip-sp-reference/blob/main/python/elip_sp_reference/core.py
 
 ==Acknowledgements==
 
