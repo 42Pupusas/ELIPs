@@ -21,7 +21,7 @@ exactly. This specification only adds Liquid-specific differences.
 
 Confidential Transactions (CT)<ref name="ct">Confidential Transactions. https://elementsproject.org/features/confidential-transactions</ref>
 hide a Liquid output's asset and amount but not its
-script. So a receiver with one published address has to either reuse it, (linking
+script. A receiver with one published address has to either reuse it, (linking
 all their payments) or run an interactive protocol to hand out fresh ones. Silent
 Payments remove that trade-off: one static address, a distinct unlinkable output per payment.
 
@@ -60,25 +60,15 @@ would link a receiver's outputs) and an interactive per-output exchange.
 
 ===Differences from BIP-352===
 
-* '''Output:''' a confidential Liquid Taproot<ref name="bip341" />
-  output (asset and amount blinded to
-  <code>BK_k</code>), rather than a bare Taproot output.
-* '''<code>outpoint_L</code>:''' the Elements consensus encoding (32-byte txid in
-  internal byte order, then 4-byte little-endian <code>vout</code>) where BIP-352 uses
-  the Bitcoin encoding.
-* '''Address HRP:''' <code>lqsp</code> (mainnet) / <code>tlqsp</code> (testnet, regtest),
-  distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and
-  Bitcoin's <code>sp</code>/<code>tsp</code>. Address payload, version symbol
-  (<code>q</code>), and the relaxed Bech32 length limit are as in BIP-352.
-* '''Light client:''' the BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref>
-  compact-filter step is unnecessary — CT does not blind
-  the <code>scriptPubKey</code>, so a client matches derived candidate scripts directly
-  against the public output scripts. The BIP-352 tweak server<ref name="indexserver">BIP-352 Silent Payments index server. https://github.com/bitcoin/bips/blob/master/bip-0352/index-server.mediawiki</ref>
-  (publishing <code>T = input_hash·A</code> per transaction) is otherwise used unchanged.
+* '''Output format.''' The output is a ''confidential'' Liquid Taproot<ref name="bip341" /> output, with its asset and amount blinded to <code>BK_k</code>, rather than a bare Taproot output.
+* '''<code>outpoint_L</code> encoding.''' Outpoints use the Elements consensus encoding (32-byte txid in internal byte order followed by 4-byte little-endian <code>vout</code>) in place of BIP-352's Bitcoin encoding.
+* '''Address HRP.''' The human-readable part is <code>lqsp</code> (mainnet) or <code>tlqsp</code> (testnet and regtest) — distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and Bitcoin's <code>sp</code>/<code>tsp</code>. The address payload, version symbol (<code>q</code>), and relaxed Bech32 length limit are unchanged from BIP-352.
+* '''Light-client scanning.''' The BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> compact-filter step is unnecessary: CT does not blind the <code>scriptPubKey</code>, so a client matches its derived candidate scripts directly against the public output scripts. The BIP-352 tweak server<ref name="indexserver">BIP-352 Silent Payments index server. https://github.com/bitcoin/bips/blob/master/bip-0352/index-server.mediawiki</ref> (publishing <code>T = input_hash·A</code> per transaction) is used unchanged.
 
-All other inputs like input eligibility, the even-Y rule, <code>input_hash</code>,
-<code>S = input_hash·a·B_scan</code>, the output tweak <code>t_k</code>, labels,
-gap-limit scanning, and the Taproot key-path spend with <code>d = b_spend + t_k</code> follow BIP-352 verbatim.
+Everything else follows BIP-352 exactly: input eligibility, the even-Y rule,
+<code>input_hash</code>, <code>S = input_hash·a·B_scan</code>, the output tweak
+<code>t_k</code>, labels, gap-limit scanning, and the Taproot key-path spend with
+<code>d = b_spend + t_k</code>.
 
 ===Privacy===
 
@@ -145,9 +135,7 @@ No consensus change. A silent-payment output is an ordinary confidential Taproot
 spent by an ordinary key-path signature, so existing relay and validation rules apply.
 Wallets that don't implement this are unaffected.
 
-==Reference Implementation==
-
-Two independent implementations that derive the test vectors above byte-for-byte:
+==Reference Implementations==
 
 * Rust: https://github.com/42Pupusas/elip-sp-reference/blob/main/src/lib.rs
 * Python: https://github.com/42Pupusas/elip-sp-reference/blob/main/python/elip_sp_reference/core.py
@@ -157,7 +145,7 @@ Two independent implementations that derive the test vectors above byte-for-byte
 This specification builds on BIP-352, the BIP-352 index server specification<ref name="indexserver" />,
 and the Confidential Transactions work of the Elements Project<ref name="ct" />.
 
-The authors thank JAN3 for sponsoring this work.
+The authors thank JAN3 for sponsoring and supporting this work.
 
 ==References==
 
