@@ -137,8 +137,8 @@ Wallets that don't implement this are unaffected.
 
 ==Reference Implementations==
 
-* Rust: https://github.com/42Pupusas/elip-sp-reference/blob/main/src/lib.rs
-* Python: https://github.com/42Pupusas/elip-sp-reference/blob/main/python/elip_sp_reference/core.py
+* Rust: [[elip-silent-payments-liquid/rust/src/lib.rs|elip-silent-payments-liquid/rust/src/lib.rs]]
+* Python: [[elip-silent-payments-liquid/python/elip_sp_reference/core.py|elip-silent-payments-liquid/python/elip_sp_reference/core.py]]
 
 ==Acknowledgements==
 
