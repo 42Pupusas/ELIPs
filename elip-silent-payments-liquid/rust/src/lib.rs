@@ -25,7 +25,8 @@
 //!   e. For each output index `k`:
 //!      - `t_k = SHA256("BIP0352/SharedSecret"||… || serP(S) || ser32(k))` mod n
 //!      - `P_k = B_spend + t_k·G`
-//!      - `bk_k = SHA256("LiquidSilentPayments/Blind"||… || serP(S) || ser32(k))` mod n
+//!      - `bk_k = SHA256("LiquidSilentPayments/Blind"||… || serP(S) || ser32(k))`
+//!        (if `bk_k` is 0 or ≥ n, output index `k` is skipped, as BIP-352 does for `t_k`)
 //!      - `BK_k = bk_k·G`
 //!
 //! The output is a confidential Taproot output: `OP_1 <x_only(P_k)>`, blinded to `BK_k`.
@@ -70,7 +71,7 @@ sha256t_hash_newtype! {
     #[hash_newtype(forward)]
     struct SharedSecretHash(_);
 
-    /// `bk_k = SHA256("LiquidSilentPayments/Blind"||"LiquidSilentPayments/Blind" || serP(S) || ser32(k))` mod n.
+    /// `bk_k = SHA256("LiquidSilentPayments/Blind"||"LiquidSilentPayments/Blind" || serP(S) || ser32(k))`.
     ///
     /// The domain `LiquidSilentPayments/Blind` is disjoint from
     /// `BIP0352/SharedSecret`, so `bk_k` and `t_k` are independent.
@@ -238,12 +239,18 @@ fn shared_secret_tweak(s: &PublicKey, k: u32) -> Scalar {
         .expect("t_k < curve order")
 }
 
-/// `bk_k = SHA256("LiquidSilentPayments/Blind"||"LiquidSilentPayments/Blind" || serP(S) || ser32(k))` mod n.
+/// `bk_k = SHA256("LiquidSilentPayments/Blind"||"LiquidSilentPayments/Blind" || serP(S) || ser32(k))`.
+///
+/// Per the spec, a hash of 0 or ≥ n is not a valid secret key and the output
+/// index `k` MUST be skipped (mirroring BIP-352's handling of `t_k`). The
+/// probability is ~2^-128, so this reference panics rather than plumbing a
+/// `Result` through every caller; a production wallet should skip `k` instead.
 fn blinding_secret(s: &PublicKey, k: u32) -> SecretKey {
     let mut eng = BlindHash::engine();
     eng.input(&s.serialize());
     eng.input(&k.to_be_bytes());
-    SecretKey::from_slice(&BlindHash::from_engine(eng).to_byte_array()).expect("bk_k < curve order")
+    SecretKey::from_slice(&BlindHash::from_engine(eng).to_byte_array())
+        .expect("bk_k out of range (0 or ≥ n): skip this output index k")
 }
 
 /// Sender's ECDH shared secret: `S = input_hash · a · B_scan`.

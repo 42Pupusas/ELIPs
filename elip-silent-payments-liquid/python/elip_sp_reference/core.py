@@ -154,10 +154,13 @@ def blinding_privkey(S: GE, k: int) -> Scalar:
 
     The Liquid-specific output blinding key. Both sender and receiver can derive
     it from S, so the receiver needs no out-of-band data to unblind the output.
+
+    Per the spec, if the hash is 0 or >= n it is not a valid secret key and the
+    output index k MUST be skipped (mirroring BIP-352's handling of t_k); this
+    has probability ~2^-128, so the reference raises rather than silently wrap.
     """
-    return Scalar.from_bytes_wrapping(
-        tagged_hash(TAG_BLIND, S.to_bytes_compressed() + ser_uint32(k))
-    )
+    h = tagged_hash(TAG_BLIND, S.to_bytes_compressed() + ser_uint32(k))
+    return Scalar.from_bytes_nonzero_checked(h)  # raises on 0 or >= n: skip this k
 
 
 def script_pubkey(P_k: GE) -> bytes:
