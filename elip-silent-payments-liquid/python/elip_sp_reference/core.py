@@ -257,13 +257,9 @@ def build_confidential_sp_txout(
     in_abfs = b"".join(f for _, f, _ in input_assets)
     in_gens = b"".join(g for _, _, g in input_assets)
     seed = os.urandom(32)
-    proof_len = wally.asset_surjectionproof_len(
+    # The wallycore wrapper sizes and returns the proof buffer itself.
+    surjectionproof = wally.asset_surjectionproof(
         asset_id, abf, asset_generator, seed, in_assets, in_abfs, in_gens,
-    )
-    surjectionproof = bytearray(proof_len)
-    wally.asset_surjectionproof(
-        asset_id, abf, asset_generator, seed, in_assets, in_abfs, in_gens,
-        surjectionproof,
     )
 
     return {
