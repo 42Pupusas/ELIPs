@@ -222,23 +222,23 @@ def build_confidential_sp_txout(
     abf: bytes,
     vbf: bytes,
     ephemeral_sk: Scalar,
+    input_assets: List[Tuple[bytes, bytes, bytes]],
 ) -> Dict[str, bytes]:
     """Build a confidential output blinded to BK_k.
 
     ``asset_id`` is the 32-byte asset tag, ``value`` the amount in satoshi,
     ``abf``/``vbf`` the 32-byte asset/value blinding factors, ``ephemeral_sk`` the
-    ephemeral scalar whose ECDH with BK_k forms the CT nonce. Returns the
-    commitments, nonce pubkey, rangeproof and scriptPubKey.
-
-    NOT BROADCASTABLE AS-IS: no surjection proof. Liquid consensus requires an
-    asset surjection proof on every confidential output, proving the output
-    asset commitment maps to one of the transaction's input assets. Generating
-    it needs the input asset generators and blinding factors — transaction-level
-    data this per-output helper does not have, and orthogonal to silent-payments
-    derivation (the proof does not involve bk_k, S, or any SP key). A real
-    wallet MUST add one when assembling the final transaction, e.g. via
-    wally.asset_surjectionproof().
+    ephemeral scalar whose ECDH with BK_k forms the CT nonce. ``input_assets``
+    lists, per transaction input, its (asset_id, abf, generator) — data the
+    sender has from unblinding its own inputs (use a zero abf for explicit
+    inputs). It feeds the asset surjection proof that Liquid consensus requires
+    on every confidential output; the proof is independent of the
+    silent-payments derivation (it does not involve bk_k, S, or any SP key).
+    Returns the commitments, nonce pubkey, rangeproof, surjection proof and
+    scriptPubKey.
     """
+    import os
+
     import wallycore as wally
 
     script = script_pubkey(P_k)
@@ -252,11 +252,26 @@ def build_confidential_sp_txout(
         value_commitment, script, asset_generator,
         1, 0, 52,
     )
+
+    in_assets = b"".join(a for a, _, _ in input_assets)
+    in_abfs = b"".join(f for _, f, _ in input_assets)
+    in_gens = b"".join(g for _, _, g in input_assets)
+    seed = os.urandom(32)
+    proof_len = wally.asset_surjectionproof_len(
+        asset_id, abf, asset_generator, seed, in_assets, in_abfs, in_gens,
+    )
+    surjectionproof = bytearray(proof_len)
+    wally.asset_surjectionproof(
+        asset_id, abf, asset_generator, seed, in_assets, in_abfs, in_gens,
+        surjectionproof,
+    )
+
     return {
         "asset_generator": asset_generator,
         "value_commitment": value_commitment,
         "nonce_pubkey": nonce_pubkey,
         "rangeproof": rangeproof,
+        "surjectionproof": bytes(surjectionproof),
         "script_pubkey": script,
     }
 

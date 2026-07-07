@@ -198,7 +198,18 @@ def test_ct_round_trip_unblind_with_bk():
     vbf = bytes([0x02] * 32)
     ephemeral_sk = sk(0x07)
 
-    txout = build_confidential_sp_txout(BK_k, P_k, asset_id, value, abf, vbf, ephemeral_sk)
+    # The input being spent: same asset, blinded with the input's own abf.
+    # The sender knows these from unblinding its own input.
+    import wallycore as wally
+
+    input_abf = bytes([0x03] * 32)
+    input_gen = wally.asset_generator_from_bytes(asset_id, input_abf)
+    input_assets = [(asset_id, input_abf, input_gen)]
+
+    txout = build_confidential_sp_txout(
+        BK_k, P_k, asset_id, value, abf, vbf, ephemeral_sk, input_assets
+    )
+    assert len(txout["surjectionproof"]) > 0
 
     # The receiver recomputes bk_k independently and unblinds.
     S_recv = receiver_shared_secret(input_hash, b_scan, A)

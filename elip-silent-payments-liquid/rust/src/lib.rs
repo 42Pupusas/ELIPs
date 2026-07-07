@@ -234,7 +234,11 @@ fn input_hash(outpoints: &[Vec<u8>], a_pubkey: &PublicKey) -> Scalar {
     eng.input(&a_pubkey.serialize());
     let scalar = Scalar::from_be_bytes(InputsHash::from_engine(eng).to_byte_array())
         .expect("input_hash ≥ n is not a valid scalar: fail, per BIP-352");
-    assert_ne!(scalar, Scalar::ZERO, "input_hash = 0 is not a valid scalar: fail, per BIP-352");
+    assert_ne!(
+        scalar,
+        Scalar::ZERO,
+        "input_hash = 0 is not a valid scalar: fail, per BIP-352"
+    );
     scalar
 }
 
@@ -249,7 +253,11 @@ fn shared_secret_tweak(s: &PublicKey, k: u32) -> Scalar {
     eng.input(&k.to_be_bytes());
     let scalar = Scalar::from_be_bytes(SharedSecretHash::from_engine(eng).to_byte_array())
         .expect("t_k ≥ n is not a valid scalar: fail, per BIP-352");
-    assert_ne!(scalar, Scalar::ZERO, "t_k = 0 is not a valid scalar: fail, per BIP-352");
+    assert_ne!(
+        scalar,
+        Scalar::ZERO,
+        "t_k = 0 is not a valid scalar: fail, per BIP-352"
+    );
     scalar
 }
 
@@ -442,24 +450,22 @@ pub fn shared_secret_from_tweak(b_scan: &SecretKey, entry: &TweakEntry) -> Publi
 
 /// Build a confidential `TxOut` blinded to `BK_k`.
 ///
-/// # Not broadcastable as-is: no surjection proof
-///
-/// Liquid consensus requires an **asset surjection proof** on every
-/// confidential output, proving the output asset commitment maps to one of the
-/// transaction's input assets. Generating it needs the input asset generators
-/// and blinding factors, which are transaction-level data that this per-output
-/// helper does not have — and which are orthogonal to silent-payments
-/// derivation (the proof does not involve `bk_k`, `S`, or any SP key).
-///
-/// This reference therefore sets `surjection_proof: None`, which every node
-/// would reject. A real wallet MUST create one when assembling the final
-/// transaction, e.g. via `SurjectionProof::new(…)` with the input asset tags
-/// and blinding factors, or by letting a full blinding API (such as
-/// `elements`' `TransactionBuilder`/`blind` routines) handle it.
+/// Liquid consensus requires an asset surjection proof on every confidential
+/// output, proving the output asset commitment maps to one of the
+/// transaction's input assets. `input_assets` supplies, for each transaction
+/// input, its asset generator, asset tag, and asset blinding factor — data the
+/// sender's wallet has from unblinding its own inputs (for an explicit input,
+/// use a zero blinding factor). The surjection proof is independent of the
+/// silent-payments derivation: it never touches `bk_k`, `S`, or any SP key.
 pub fn build_confidential_sp_txout(
     out: &SilentPaymentOutput,
     asset: lwk_wollet::elements::AssetId,
     value: u64,
+    input_assets: &[(
+        lwk_wollet::elements::secp256k1_zkp::Generator,
+        lwk_wollet::elements::secp256k1_zkp::Tag,
+        lwk_wollet::elements::secp256k1_zkp::Tweak,
+    )],
     rng: &mut (impl rand::RngCore + rand::CryptoRng),
 ) -> Result<
     (
@@ -471,7 +477,9 @@ pub fn build_confidential_sp_txout(
     use lwk_wollet::elements::confidential::{
         Asset, AssetBlindingFactor, Nonce, Value, ValueBlindingFactor,
     };
-    use lwk_wollet::elements::secp256k1_zkp::{Generator, PedersenCommitment, RangeProof, Tag};
+    use lwk_wollet::elements::secp256k1_zkp::{
+        Generator, PedersenCommitment, RangeProof, SurjectionProof, Tag,
+    };
     use lwk_wollet::elements::{TxOut, TxOutSecrets, TxOutWitness};
 
     let script_pubkey = out.script_pubkey();
@@ -504,15 +512,16 @@ pub fn build_confidential_sp_txout(
         asset_gen,
     )?;
 
+    let surjection_proof =
+        SurjectionProof::new(&EC, &mut *rng, asset_tag, abf.into_inner(), input_assets)?;
+
     let txout = TxOut {
         asset: Asset::Confidential(asset_gen),
         value: Value::Confidential(value_commitment),
         nonce,
         script_pubkey,
         witness: TxOutWitness {
-            // Required by consensus but needs transaction-level input data;
-            // see the function docs. A real wallet MUST fill this in.
-            surjection_proof: None,
+            surjection_proof: Some(Box::new(surjection_proof)),
             rangeproof: Some(Box::new(rangeproof)),
         },
     };
@@ -771,9 +780,27 @@ mod tests {
         let value = 123_456u64;
         let mut rng = rand::thread_rng();
 
+        // The input being spent: same asset, blinded with the input's own abf.
+        // The sender knows these from unblinding its own input.
+        use lwk_wollet::elements::confidential::AssetBlindingFactor;
+        use lwk_wollet::elements::secp256k1_zkp::{Generator, Tag};
+        let input_abf = AssetBlindingFactor::new(&mut rng);
+        let input_tag = Tag::from(asset.into_inner().to_byte_array());
+        let input_gen = Generator::new_blinded(&EC, input_tag, input_abf.into_inner());
+        let input_assets = [(input_gen, input_tag, input_abf.into_inner())];
+
         let sender_out = sender_derive_output(&address, &agg, k);
         let (txout, secrets) =
-            build_confidential_sp_txout(&sender_out, asset, value, &mut rng).unwrap();
+            build_confidential_sp_txout(&sender_out, asset, value, &input_assets, &mut rng)
+                .unwrap();
+
+        // The surjection proof must verify against the input generators.
+        let proof = txout.witness.surjection_proof.as_ref().unwrap();
+        let out_gen = match txout.asset {
+            lwk_wollet::elements::confidential::Asset::Confidential(g) => g,
+            _ => unreachable!(),
+        };
+        assert!(proof.verify(&EC, out_gen, &[input_gen]));
 
         let (recv_out, _) =
             receiver_derive_output(&b_scan, &b_spend, &agg.a_pubkey, &agg.input_hash, k);
