@@ -106,10 +106,14 @@ def get_input_hash(outpoints: List[bytes], A: GE) -> Scalar:
     """input_hash = tagged_hash("BIP0352/Inputs", lowest_outpoint || serP(A)).
 
     Each outpoint is the 36 bytes ``txid (32) || vout (4, little-endian)``.
+
+    Per BIP-352 (v1.0.2), if the hash is 0 or >= n it is not a valid scalar and
+    the sender/receiver MUST fail. ``from_bytes_checked`` raises on >= n,
+    matching the canonical BIP-352 reference.py (probability ~2^-128).
     """
     lowest = sorted(outpoints)[0]
     h = tagged_hash(TAG_INPUTS, lowest + A.to_bytes_compressed())
-    return Scalar.from_bytes_wrapping(h)
+    return Scalar.from_bytes_checked(h)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,8 +137,13 @@ def receiver_shared_secret(input_hash: Scalar, b_scan: Scalar, A_sum: GE) -> GE:
 
 
 def output_tweak(S: GE, k: int) -> Scalar:
-    """t_k = tagged_hash("BIP0352/SharedSecret", serP(S) || ser32(k))."""
-    return Scalar.from_bytes_wrapping(
+    """t_k = tagged_hash("BIP0352/SharedSecret", serP(S) || ser32(k)).
+
+    Per BIP-352 (v1.0.2), if t_k is 0 or >= n it is not a valid scalar and the
+    sender/receiver MUST fail. ``from_bytes_checked`` raises on >= n, matching
+    the canonical BIP-352 reference.py (probability ~2^-128).
+    """
+    return Scalar.from_bytes_checked(
         tagged_hash(TAG_SHARED_SECRET, S.to_bytes_compressed() + ser_uint32(k))
     )
 
@@ -156,8 +165,12 @@ def blinding_privkey(S: GE, k: int) -> Scalar:
     it from S, so the receiver needs no out-of-band data to unblind the output.
 
     Per the spec, if the hash is 0 or >= n it is not a valid secret key and the
-    output index k MUST be skipped (mirroring BIP-352's handling of t_k); this
-    has probability ~2^-128, so the reference raises rather than silently wrap.
+    output index k MUST be skipped entirely (mirroring BIP-352's handling of
+    t_k): no output is created for that k -- its P_k/scriptPubKey are never
+    used -- and BOTH P_{k+1} and bk_{k+1} are re-derived from the next index.
+    (P_k, bk_k) must always share the same k; re-deriving only the blinding key
+    would leave the output unblindable by the receiver. This has probability
+    ~2^-128, so the reference raises rather than silently wrap.
     """
     h = tagged_hash(TAG_BLIND, S.to_bytes_compressed() + ser_uint32(k))
     return Scalar.from_bytes_nonzero_checked(h)  # raises on 0 or >= n: skip this k
@@ -216,6 +229,15 @@ def build_confidential_sp_txout(
     ``abf``/``vbf`` the 32-byte asset/value blinding factors, ``ephemeral_sk`` the
     ephemeral scalar whose ECDH with BK_k forms the CT nonce. Returns the
     commitments, nonce pubkey, rangeproof and scriptPubKey.
+
+    NOT BROADCASTABLE AS-IS: no surjection proof. Liquid consensus requires an
+    asset surjection proof on every confidential output, proving the output
+    asset commitment maps to one of the transaction's input assets. Generating
+    it needs the input asset generators and blinding factors — transaction-level
+    data this per-output helper does not have, and orthogonal to silent-payments
+    derivation (the proof does not involve bk_k, S, or any SP key). A real
+    wallet MUST add one when assembling the final transaction, e.g. via
+    wally.asset_surjectionproof().
     """
     import wallycore as wally
 

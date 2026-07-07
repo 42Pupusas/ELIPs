@@ -20,10 +20,12 @@
 //!
 //!   a. `a = Σ a_i`,  `A = a·G`
 //!   b. `outpoint_L` = the lexicographically smallest input outpoint
-//!   c. `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))` mod n
+//!   c. `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))`
+//!      (if `input_hash` is 0 or ≥ n, fail, per BIP-352)
 //!   d. `S = input_hash · a · B_scan`
 //!   e. For each output index `k`:
-//!      - `t_k = SHA256("BIP0352/SharedSecret"||… || serP(S) || ser32(k))` mod n
+//!      - `t_k = SHA256("BIP0352/SharedSecret"||… || serP(S) || ser32(k))`
+//!        (if `t_k` is 0 or ≥ n, fail, per BIP-352)
 //!      - `P_k = B_spend + t_k·G`
 //!      - `bk_k = SHA256("LiquidSilentPayments/Blind"||… || serP(S) || ser32(k))`
 //!        (if `bk_k` is 0 or ≥ n, output index `k` is skipped, as BIP-352 does for `t_k`)
@@ -61,7 +63,7 @@ use lwk_wollet::{ElementsNetwork, EC};
 // ═══════════════════════════════════════════════════════════════════════════════
 
 sha256t_hash_newtype! {
-    /// `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))` mod n.
+    /// `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))`.
     struct InputsTag = hash_str("BIP0352/Inputs");
     #[hash_newtype(forward)]
     struct InputsHash(_);
@@ -219,32 +221,48 @@ fn lowest_outpoint(outpoints: impl IntoIterator<Item = impl AsRef<[u8]>>) -> Vec
         .expect("at least one outpoint")
 }
 
-/// `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))` mod n.
+/// `input_hash = SHA256("BIP0352/Inputs"||"BIP0352/Inputs" || outpoint_L || serP(A))`.
 ///
 /// `outpoint_L` is the lexicographically smallest outpoint, selected internally.
+///
+/// Per BIP-352 (v1.0.2), if the hash is 0 or ≥ n it is not a valid scalar and
+/// both sender and receiver MUST fail (probability ~2^-128). This reference
+/// panics in that case; `Scalar::from_be_bytes` rejects ≥ n, the assert rejects 0.
 fn input_hash(outpoints: &[Vec<u8>], a_pubkey: &PublicKey) -> Scalar {
     let mut eng = InputsHash::engine();
     eng.input(&lowest_outpoint(outpoints));
     eng.input(&a_pubkey.serialize());
-    Scalar::from_be_bytes(InputsHash::from_engine(eng).to_byte_array())
-        .expect("input_hash < curve order")
+    let scalar = Scalar::from_be_bytes(InputsHash::from_engine(eng).to_byte_array())
+        .expect("input_hash ≥ n is not a valid scalar: fail, per BIP-352");
+    assert_ne!(scalar, Scalar::ZERO, "input_hash = 0 is not a valid scalar: fail, per BIP-352");
+    scalar
 }
 
-/// `t_k = SHA256("BIP0352/SharedSecret"||"BIP0352/SharedSecret" || serP(S) || ser32(k))` mod n.
+/// `t_k = SHA256("BIP0352/SharedSecret"||"BIP0352/SharedSecret" || serP(S) || ser32(k))`.
+///
+/// Per BIP-352 (v1.0.2), if the hash is 0 or ≥ n it is not a valid scalar and
+/// both sender and receiver MUST fail (probability ~2^-128). This reference
+/// panics in that case; `Scalar::from_be_bytes` rejects ≥ n, the assert rejects 0.
 fn shared_secret_tweak(s: &PublicKey, k: u32) -> Scalar {
     let mut eng = SharedSecretHash::engine();
     eng.input(&s.serialize());
     eng.input(&k.to_be_bytes());
-    Scalar::from_be_bytes(SharedSecretHash::from_engine(eng).to_byte_array())
-        .expect("t_k < curve order")
+    let scalar = Scalar::from_be_bytes(SharedSecretHash::from_engine(eng).to_byte_array())
+        .expect("t_k ≥ n is not a valid scalar: fail, per BIP-352");
+    assert_ne!(scalar, Scalar::ZERO, "t_k = 0 is not a valid scalar: fail, per BIP-352");
+    scalar
 }
 
 /// `bk_k = SHA256("LiquidSilentPayments/Blind"||"LiquidSilentPayments/Blind" || serP(S) || ser32(k))`.
 ///
 /// Per the spec, a hash of 0 or ≥ n is not a valid secret key and the output
-/// index `k` MUST be skipped (mirroring BIP-352's handling of `t_k`). The
-/// probability is ~2^-128, so this reference panics rather than plumbing a
-/// `Result` through every caller; a production wallet should skip `k` instead.
+/// index `k` MUST be skipped entirely (mirroring BIP-352's handling of `t_k`):
+/// no output is created for that `k` — its `P_k`/scriptPubKey are never used —
+/// and *both* `P_{k+1}` and `bk_{k+1}` are re-derived from the next index.
+/// `(P_k, bk_k)` must always share the same `k`; re-deriving only the blinding
+/// key would leave the output unblindable by the receiver. The probability is
+/// ~2^-128, so this reference panics rather than plumbing a `Result` through
+/// every caller; a production wallet should skip `k` instead.
 fn blinding_secret(s: &PublicKey, k: u32) -> SecretKey {
     let mut eng = BlindHash::engine();
     eng.input(&s.serialize());
@@ -423,6 +441,21 @@ pub fn shared_secret_from_tweak(b_scan: &SecretKey, entry: &TweakEntry) -> Publi
 // unblinds, recovering plaintext asset + value with no out-of-band exchange.
 
 /// Build a confidential `TxOut` blinded to `BK_k`.
+///
+/// # Not broadcastable as-is: no surjection proof
+///
+/// Liquid consensus requires an **asset surjection proof** on every
+/// confidential output, proving the output asset commitment maps to one of the
+/// transaction's input assets. Generating it needs the input asset generators
+/// and blinding factors, which are transaction-level data that this per-output
+/// helper does not have — and which are orthogonal to silent-payments
+/// derivation (the proof does not involve `bk_k`, `S`, or any SP key).
+///
+/// This reference therefore sets `surjection_proof: None`, which every node
+/// would reject. A real wallet MUST create one when assembling the final
+/// transaction, e.g. via `SurjectionProof::new(…)` with the input asset tags
+/// and blinding factors, or by letting a full blinding API (such as
+/// `elements`' `TransactionBuilder`/`blind` routines) handle it.
 pub fn build_confidential_sp_txout(
     out: &SilentPaymentOutput,
     asset: lwk_wollet::elements::AssetId,
@@ -477,6 +510,8 @@ pub fn build_confidential_sp_txout(
         nonce,
         script_pubkey,
         witness: TxOutWitness {
+            // Required by consensus but needs transaction-level input data;
+            // see the function docs. A real wallet MUST fill this in.
             surjection_proof: None,
             rangeproof: Some(Box::new(rangeproof)),
         },
