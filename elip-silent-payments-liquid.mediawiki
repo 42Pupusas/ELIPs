@@ -17,6 +17,10 @@ This document specifies Silent Payments for the Liquid Network. The key derivati
 address format, scanning, and spending follow BIP-352<ref name="bip352">BIP-352: Silent Payments. https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki</ref>
 exactly. This specification only adds Liquid-specific differences.
 
+==Copyright==
+
+This document is licensed under the 3-clause BSD license.
+
 ==Motivation==
 
 Confidential Transactions (CT)<ref name="ct">Confidential Transactions. https://elementsproject.org/features/confidential-transactions</ref>
