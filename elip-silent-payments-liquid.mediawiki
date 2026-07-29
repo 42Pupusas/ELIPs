@@ -76,30 +76,7 @@ is encoded as the 36 bytes
 The test-vector txids below are given in internal byte order.
 * '''Key derivation path.''' Scan and spend keys use the BIP-352 derivation scheme with the coin type replaced by SLIP-44<ref name="slip44">SLIP-0044: Registered coin types for BIP-0044. https://github.com/satoshilabs/slips/blob/master/slip-0044.md</ref> code 1776 (Liquid): <code>scan_key: m/352'/1776'/account'/1'/0</code> and <code>spend_key: m/352'/1776'/account'/0'/0</code> for mainnet, with coin type <code>1'</code> for testnet and regtest. This keeps Liquid silent-payment keys disjoint from a wallet's Bitcoin silent-payment keys (<code>m/352'/0'/...</code>).
 * '''Address HRP.''' The human-readable part is <code>lqsp</code> (mainnet) or <code>tlqsp</code> (testnet and regtest) — distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and Bitcoin's <code>sp</code>/<code>tsp</code>. The address payload, version symbol (<code>q</code>), and relaxed Bech32 length limit are unchanged from BIP-352.
-* '''Light-client scanning.''' The BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> compact-filter step is unnecessary: CT does not blind the <code>scriptPubKey</code>, so a client matches its derived candidate scripts directly against the public output scripts.
-
-===Tweak Server===
-
-A tweak server lets a light client outsource input-scanning work without handing
-over its scan key. Per transaction with eligible inputs, the server computes and
-publishes:
-
-* <code>A</code>, the sum of the transaction's eligible input public keys, per BIP-352's input-aggregation rule;
-* <code>input_hash</code>, computed from the transaction's outpoints and <code>A</code> exactly as in BIP-352;
-* <code>T = input_hash·A</code>, the published per-transaction tweak.
-
-A client holding the scan private key <code>b_scan</code> recomputes the shared
-secret as <code>S = b_scan·T</code>, which is identical to the sender's
-<code>S = input_hash·a·B_scan</code> by associativity, without ever revealing
-<code>b_scan</code> or <code>a</code> to the server or to each other. The server
-learns only public data (input public keys and outpoints, already visible
-on-chain) and cannot compute <code>S</code>, so it can index and serve
-<code>T</code> per transaction without being able to detect or unblind any
-output.
-
-This is the BIP-352 tweak server<ref name="indexserver">BIP-352 Silent Payments index server. https://github.com/bitcoin/bips/blob/master/bip-0352/index-server.mediawiki</ref>,
-used unchanged; no Liquid adaptation is needed since <code>T</code> is computed
-from the same public inputs on both chains.
+* '''Light-client scanning.''' The BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> compact-filter step is unnecessary: CT does not blind the <code>scriptPubKey</code>, so a client matches its derived candidate scripts directly against the public output scripts. The BIP-352 tweak server<ref name="indexserver">BIP-352 Silent Payments index server. https://github.com/bitcoin/bips/blob/master/bip-0352/index-server.mediawiki</ref> (publishing <code>T = input_hash·A</code> per transaction, so a client with <code>b_scan</code> can compute <code>S = b_scan·T</code> without exposing any private key) is used unchanged.
 
 Everything else follows BIP-352 exactly: input eligibility, the even-Y rule,
 <code>input_hash</code>, <code>S = input_hash·a·B_scan</code>, the output tweak
