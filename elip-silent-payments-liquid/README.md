@@ -13,12 +13,17 @@ a flat script next to the ELIP, in the style of the canonical
 - [`bech32m.py`](bech32m.py) — Bech32m, verbatim from BIP-350 / the BIP-352
   reference.
 - [`test_vectors.py`](test_vectors.py) — byte-pinned test vectors plus
-  taproot/tweak-server/address/CT round-trip tests.
+  taproot/tweak-server/address/CT/label/peg-in round-trip tests.
 
 Covers:
 
-- **Address encoding** — Bech32m, HRP `lqsp`/`tlqsp`, version `q`
+- **Address encoding** — Bech32m, HRP `lqsp`/`tlqsp`, version `q`, including
+  explicit testnet/regtest (`tlqsp`, shared per the ELIP) and mainnet separation
 - **Sender derivation** — input aggregation, ECDH shared secret, `P_k`, `BK_k`, `bk_k`
+- **Labels** — `B_m = B_spend + label_tweak(b_scan, m)·G`, unchanged from BIP-352;
+  sender/receiver spend-key agreement for a labeled address
+- **Peg-in input eligibility** — a peg-in contributes no pubkey to the shared
+  secret but its outpoint still participates in `outpoint_L` selection
 - **Tweak server** — `T = input_hash · A`, publish, and client-side `S = b_scan · T`
 - **Receiver scanning** — recompute `P_k`, match against outputs, derive spend secret
 - **Confidential output blinding and unblinding** — the ELIP's novel claim: `bk_k`

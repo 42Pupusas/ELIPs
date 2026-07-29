@@ -107,6 +107,30 @@ def output_spend_privkey(b_spend: Scalar, S: GE, k: int) -> Scalar:
     return b_spend + output_tweak(S, k)
 
 
+# Labels (BIP-352, unchanged on Liquid). A label lets the receiver tag a spend
+# key so incoming payments can be attributed to a source without publishing
+# multiple addresses. m=0 is reserved for change and MUST never be handed out.
+
+
+def label_tweak(b_scan: Scalar, m: int) -> Scalar:
+    """hash_{BIP0352/Label}(ser256(b_scan) || ser32(m))."""
+    return Scalar.from_bytes_checked(
+        tagged_hash("BIP0352/Label", b_scan.to_bytes() + ser_uint32(m))
+    )
+
+
+def labeled_spend_pubkey(B_spend: GE, b_scan: Scalar, m: int) -> GE:
+    """B_m = B_spend + label_tweak(b_scan, m)*G, published in place of B_spend."""
+    return B_spend + label_tweak(b_scan, m) * G
+
+
+def labeled_output_spend_privkey(
+    b_spend: Scalar, label: Scalar, S: GE, k: int
+) -> Scalar:
+    """Private key for an output built against a labeled B_m: b_spend + label + t_k."""
+    return b_spend + label + output_tweak(S, k)
+
+
 def blinding_privkey(S: GE, k: int) -> Scalar:
     """bk_k = tagged_hash("LiquidSilentPayments/Blind", serP(S) || ser32(k)).
 

@@ -15,6 +15,9 @@ from reference import (  # noqa: E402
     decode_silent_payment_address,
     encode_silent_payment_address,
     get_input_hash,
+    label_tweak,
+    labeled_output_spend_privkey,
+    labeled_spend_pubkey,
     output_pubkey,
     output_spend_privkey,
     receiver_shared_secret,
@@ -213,3 +216,86 @@ def test_ct_round_trip_unblind_with_bk():
     assert wrong_bk != bk
     with pytest.raises(Exception):
         unblind_output(txout, wrong_bk)
+
+
+def test_labels():
+    # BIP-352 labels, unchanged on Liquid: B_m = B_spend + label_tweak(b_scan, m)*G.
+    # m=0 is reserved for change. We verify the sender/receiver key-derivation
+    # agreement for a labeled address: sender uses the published B_m in place
+    # of B_spend, receiver reconstructs the same spend key offline.
+    b_scan, b_spend = sk(0x11), sk(0x22)
+    B_scan, B_spend = b_scan * G, b_spend * G
+
+    input_priv_keys = [(sk(0x44), False)]
+    op = outpoint(0xcd, 0)
+    a_sum = sum_input_privkeys(input_priv_keys)
+    A = a_sum * G
+    input_hash = get_input_hash([op], A)
+
+    S_send = sender_shared_secret(input_hash, a_sum, B_scan)
+    S_recv = receiver_shared_secret(input_hash, b_scan, A)
+    assert S_send == S_recv
+
+    for m in (1, 2, 7):
+        label = label_tweak(b_scan, m)
+        B_m = labeled_spend_pubkey(B_spend, b_scan, m)
+        assert B_m == B_spend + label * G
+
+        P_k = output_pubkey(B_m, S_send, 0)
+        spend_sk = labeled_output_spend_privkey(b_spend, label, S_recv, 0)
+        assert spend_sk * G == P_k, f"labeled spend key matches P_k, m={m}"
+
+    assert label_tweak(b_scan, 0) != label_tweak(b_scan, 1)
+
+
+def test_pegin_input_excluded_from_shared_secret():
+    # A peg-in input contributes no pubkey to the shared secret (per the
+    # ELIP's 'Input eligibility for peg-ins and issuances' bullet), but its
+    # outpoint still participates in outpoint_L since that's read from the
+    # Liquid transaction itself, not the Bitcoin-chain prevout it spends.
+    b_scan, b_spend = sk(0x11), sk(0x22)
+    B_scan = b_scan * G
+
+    eligible_priv_keys = [(sk(0x51), False), (sk(0x52), False)]
+    pegin_outpoint = outpoint(0xfe, 0)  # peg-in's own outpoint on Liquid
+    eligible_outpoints = [outpoint(0x61, 0), outpoint(0x62, 1)]
+    all_outpoints = eligible_outpoints + [pegin_outpoint]
+
+    a_sum = sum_input_privkeys(eligible_priv_keys)
+    A = a_sum * G
+
+    input_hash_with_pegin = get_input_hash(all_outpoints, A)
+    input_hash_without_pegin = get_input_hash(eligible_outpoints, A)
+
+    lowest_with = sorted(all_outpoints)[0]
+    if lowest_with == pegin_outpoint:
+        assert input_hash_with_pegin != input_hash_without_pegin
+    else:
+        assert input_hash_with_pegin == input_hash_without_pegin
+
+    S = sender_shared_secret(input_hash_with_pegin, a_sum, B_scan)
+    S_from_eligible_only = sender_shared_secret(
+        input_hash_with_pegin, sum_input_privkeys(eligible_priv_keys), B_scan
+    )
+    assert S == S_from_eligible_only
+
+
+def test_testnet_and_regtest_addresses():
+    # tlqsp is shared by testnet and regtest per the ELIP (mirrors BIP-352's
+    # single non-mainnet HRP, which itself only names signet/testnet but is
+    # conventionally extended to regtest by implementations).
+    b_scan, b_spend = sk(0x11), sk(0x22)
+    B_scan, B_spend = b_scan * G, b_spend * G
+
+    testnet_addr = encode_silent_payment_address(B_scan, B_spend, "liquid-testnet")
+    regtest_addr = encode_silent_payment_address(B_scan, B_spend, "liquid-regtest")
+    assert testnet_addr == regtest_addr, "testnet and regtest share tlqsp"
+    assert testnet_addr.startswith("tlqsp1")
+
+    for network in ("liquid-testnet", "liquid-regtest"):
+        d_scan, d_spend = decode_silent_payment_address(testnet_addr, network)
+        assert d_scan == B_scan and d_spend == B_spend
+
+    mainnet_addr = encode_silent_payment_address(B_scan, B_spend, "liquid")
+    assert mainnet_addr != testnet_addr
+    assert mainnet_addr.startswith("lqsp1")
