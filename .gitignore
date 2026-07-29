@@ -1,5 +1,0 @@
-# Python reference-implementation artifacts (elip-silent-payments-liquid/reference.py etc.)
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
