@@ -1,18 +1,15 @@
-"""Reference test vectors, in the style of the BIP-352 reference tests.
-
-Same constants as the Rust ``reference`` implementation, asserted byte-for-byte.
-"""
+"""Reference test vectors, in the style of the BIP-352 reference tests."""
 
 import os
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from secp256k1lab.secp256k1 import G, GE, Scalar  # noqa: E402
 
-from elip_sp_reference import (  # noqa: E402
+from reference import (  # noqa: E402
     blinding_privkey,
     compute_tweak,
     decode_silent_payment_address,
@@ -104,7 +101,6 @@ def test_vectors():
 
 def test_taproot_even_y_negation():
     """BIP-352 even-Y normalization for taproot inputs."""
-    # Find an odd-Y private key.
     odd = None
     for b in range(1, 0x100):
         if not (sk(b) * G).has_even_y():
@@ -112,10 +108,6 @@ def test_taproot_even_y_negation():
             break
     assert odd is not None
 
-    op = outpoint(0x10, 0)
-
-    # As a taproot input, an odd-Y key is negated; A differs from the non-taproot
-    # aggregate, but its x-only coordinate is unchanged and A is even-Y.
     a_tr = sum_input_privkeys([(odd, True)])
     a_legacy = sum_input_privkeys([(odd, False)])
     assert a_tr != a_legacy, "odd-Y taproot key is negated"
@@ -124,7 +116,6 @@ def test_taproot_even_y_negation():
     A_tr = a_tr * G
     assert A_tr.to_bytes_xonly() == (odd * G).to_bytes_xonly(), "x-only A unchanged"
 
-    # An even-Y key behaves identically whether or not it is taproot.
     even = None
     for b in range(1, 0x100):
         if (sk(b) * G).has_even_y():
@@ -148,10 +139,8 @@ def test_tweak_server_agreement():
 
     S_sender = sender_shared_secret(input_hash, a_sum, B_scan)
 
-    # Server side: publish T = input_hash * A from public keys only.
     T, ih_server, A_server = compute_tweak([sk(0x55) * G], [op])
     assert A_server == A and ih_server == input_hash
-    # Client side: S = b_scan * T.
     S_client = shared_secret_from_tweak(b_scan, T)
 
     assert S_client == S_sender, "client shared secret matches sender"
@@ -175,7 +164,7 @@ def test_address_round_trip_and_network_separation():
 def test_ct_round_trip_unblind_with_bk():
     """CT round-trip: sender blinds to BK_k, receiver unblinds with bk_k."""
     pytest.importorskip("wallycore")
-    from elip_sp_reference import build_confidential_sp_txout, unblind_output
+    from reference import build_confidential_sp_txout, unblind_output
 
     b_scan, b_spend = sk(0x11), sk(0x22)
     B_scan, B_spend = b_scan * G, b_spend * G
@@ -198,8 +187,6 @@ def test_ct_round_trip_unblind_with_bk():
     vbf = bytes([0x02] * 32)
     ephemeral_sk = sk(0x07)
 
-    # The input being spent: same asset, blinded with the input's own abf.
-    # The sender knows these from unblinding its own input.
     import wallycore as wally
 
     input_abf = bytes([0x03] * 32)
@@ -211,7 +198,6 @@ def test_ct_round_trip_unblind_with_bk():
     )
     assert len(txout["surjectionproof"]) > 0
 
-    # The receiver recomputes bk_k independently and unblinds.
     S_recv = receiver_shared_secret(input_hash, b_scan, A)
     bk_recv = blinding_privkey(S_recv, k)
     assert bk_recv == bk
@@ -221,7 +207,6 @@ def test_ct_round_trip_unblind_with_bk():
     assert recovered["abf"] == abf
     assert recovered["vbf"] == vbf
 
-    # A wrong scan key derives a different bk_k, so unblind fails.
     wrong_bk = blinding_privkey(
         receiver_shared_secret(input_hash, sk(0x99), A), k
     )
