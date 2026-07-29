@@ -84,9 +84,9 @@ A tweak server lets a light client outsource input-scanning work without handing
 over its scan key. Per transaction with eligible inputs, the server computes and
 publishes:
 
-* <code>A</code>, the sum of the transaction's eligible input public keys (as defined in BIP-352's input-aggregation rule) '''[BIP-352]''';
-* <code>input_hash</code>, computed from the transaction's outpoints and <code>A</code> exactly as in BIP-352 '''[BIP-352]''';
-* <code>T = input_hash·A</code>, the published per-transaction tweak '''[BIP-352]'''.
+* <code>A</code>, the sum of the transaction's eligible input public keys, per BIP-352's input-aggregation rule;
+* <code>input_hash</code>, computed from the transaction's outpoints and <code>A</code> exactly as in BIP-352;
+* <code>T = input_hash·A</code>, the published per-transaction tweak.
 
 A client holding the scan private key <code>b_scan</code> recomputes the shared
 secret as <code>S = b_scan·T</code>, which is identical to the sender's
