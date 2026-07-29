@@ -110,11 +110,12 @@ def output_spend_privkey(b_spend: Scalar, S: GE, k: int) -> Scalar:
 def blinding_privkey(S: GE, k: int) -> Scalar:
     """bk_k = tagged_hash("LiquidSilentPayments/Blind", serP(S) || ser32(k)).
 
-    If the hash is 0 or >= n, k is skipped entirely per the ELIP: no output is
-    created for that k, and both P_{k+1} and bk_{k+1} are re-derived together.
+    Per the ELIP, if the hash is 0 or >= n this MUST be treated as a failure,
+    matching BIP-352's handling of an out-of-range t_k (which also fails, not
+    skips). from_bytes_checked raises on 0 or >= n.
     """
     h = tagged_hash(TAG_BLIND, S.to_bytes_compressed() + ser_uint32(k))
-    return Scalar.from_bytes_nonzero_checked(h)  # raises on 0 or >= n: skip this k
+    return Scalar.from_bytes_checked(h)
 
 
 def script_pubkey(P_k: GE) -> bytes:

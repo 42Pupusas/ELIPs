@@ -53,7 +53,7 @@ The sender, for each output index <code>k</code>:
 * Let <code>S</code> be the shared secret and <code>P_k</code> the output public key, derived as in BIP-352
 * Let <code>scriptPubKey = OP_1 <x_only(P_k)></code>, a BIP-341<ref name="bip341">BIP-341: Taproot: SegWit version 1 spending rules. https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki</ref> Taproot output
 * Let <code>bk_k = int(hash<sub>blind_tag</sub>(serP(S) || ser32(k)))</code>
-** If <code>bk_k = 0</code> or <code>bk_k ≥ n</code>, <code>bk_k</code> is not a valid secp256k1 secret key: the output index <code>k</code> is skipped '''entirely''' — no output is created for that <code>k</code>, its <code>P_k</code> and <code>scriptPubKey</code> are never used, and both sender and receiver continue with <code>k+1</code>, re-deriving '''both''' <code>P_{k+1}</code> (and thus the <code>scriptPubKey</code>) '''and''' <code>bk_{k+1}</code> from the new index. An output's key pair <code>(P_k, bk_k)</code> MUST always share the same index <code>k</code>; re-deriving only the blinding key while keeping the previous <code>P_k</code> would make the output unblindable by the receiver. This mirrors BIP-352's handling of an out-of-range <code>t_k</code>. (The probability is about 2<sup>-128</sup> and cannot be triggered by an attacker without solving ECDH.)
+** If <code>bk_k = 0</code> or <code>bk_k ≥ n</code>, <code>bk_k</code> is not a valid secp256k1 secret key: as with an out-of-range <code>t_k</code> in BIP-352, this MUST be treated as a failure, not skipped — the sender fails to construct this output and the receiver fails to scan past it. (The probability is about 2<sup>-128</sup> and cannot be triggered by an attacker without solving ECDH.)
 * Let <code>BK_k = bk_k·G</code>
 * Blind the output's asset and amount to <code>BK_k</code>, as for any confidential Liquid output. This includes all witness data required by Liquid consensus — in particular the asset ''surjection proof'', which is built from transaction-level input data as usual and is independent of the silent-payments derivation (it does not involve <code>bk_k</code> or <code>S</code>)
 
@@ -73,15 +73,19 @@ is encoded as the 36 bytes
 
  <code>00ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211 01000000</code>
 
-The test-vector txids below are given in internal byte order.
+The test-vector txids below are given in internal byte order. Elements also overloads the high bits of <code>vout</code> as issuance (bit 31) and peg-in (bit 30) flags, cleared when the input is parsed<ref name="elementsflags">Elements <code>COutPoint::OUTPOINT_ISSUANCE_FLAG</code> / <code>OUTPOINT_PEGIN_FLAG</code>. https://github.com/ElementsProject/elements/blob/master/src/primitives/transaction.h</ref>; <code>vout</code> here is always the parsed index with both flags cleared (equivalently, <code>vout & 0x3fffffff</code>), matching what every implementation already has after deserializing the transaction. A coinbase input's <code>vout = 0xffffffff</code> carries no flags and is unaffected.
+* '''Input eligibility for peg-ins and issuances.''' A peg-in input spends a Bitcoin-chain output that a Liquid-only client cannot inspect, so it MUST be excluded from the eligible-input list in [[#inputs-for-shared-secret-derivation|Inputs For Shared Secret Derivation]] — it contributes no public key to <code>a</code>/<code>A</code> — but its outpoint still participates in <code>outpoint_L</code>, since that is read from the Liquid transaction itself. An input carrying an asset issuance or reissuance is eligible under BIP-352's normal rules unchanged; an issuance does not alter how the input is spent or its scriptPubKey.
 * '''Key derivation path.''' Scan and spend keys use the BIP-352 derivation scheme with the coin type replaced by SLIP-44<ref name="slip44">SLIP-0044: Registered coin types for BIP-0044. https://github.com/satoshilabs/slips/blob/master/slip-0044.md</ref> code 1776 (Liquid): <code>scan_key: m/352'/1776'/account'/1'/0</code> and <code>spend_key: m/352'/1776'/account'/0'/0</code> for mainnet, with coin type <code>1'</code> for testnet and regtest. This keeps Liquid silent-payment keys disjoint from a wallet's Bitcoin silent-payment keys (<code>m/352'/0'/...</code>).
 * '''Address HRP.''' The human-readable part is <code>lqsp</code> (mainnet) or <code>tlqsp</code> (testnet and regtest) — distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and Bitcoin's <code>sp</code>/<code>tsp</code>. The address payload, version symbol (<code>q</code>), and relaxed Bech32 length limit are unchanged from BIP-352.
 * '''Light-client scanning.''' No BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> filters needed: CT doesn't blind <code>scriptPubKey</code>, so a client matches candidate scripts directly.
-* '''Tweak server.''' BIP-352's index server<ref name="indexserver">BIP-352 Silent Payments index server. https://github.com/bitcoin/bips/blob/master/bip-0352/index-server.mediawiki</ref>, unchanged: publishes <code>T = input_hash·A</code> per transaction; a client computes <code>S = b_scan·T</code>.
+* '''Tweak server.''' The Silent Payments index server specification<ref name="indexserver">Silent Payments Index Server Specification. https://github.com/silent-payments/BIP0352-index-server-specification</ref>, unchanged: publishes <code>T = input_hash·A</code> per transaction; a client computes <code>S = b_scan·T</code>. Its optional <code>dust_limit</code> filtering does not apply on Liquid — output amounts are confidential, so a server cannot tell a dust output from any other; a Liquid tweak server MUST report <code>dust_limit = 0</code> (disabled).
 
-Everything else follows BIP-352 exactly: input eligibility, the even-Y rule,
-<code>input_hash</code>, <code>S = input_hash·a·B_scan</code>, the output tweak
-<code>t_k</code>, labels, gap-limit scanning, and the Taproot key-path spend with
+Everything else follows BIP-352 exactly: eligible-input extraction for the four
+BIP-352 input types, the even-Y rule, <code>input_hash</code>,
+<code>S = input_hash·a·B_scan</code>, the output tweak <code>t_k</code>, labels,
+gap-limit scanning, the per-group recipient limit <code>K_max = 2323</code> (a
+sender MUST fail if a recipient group exceeds it; a receiver MUST NOT scan past
+<code>k = K_max</code>), and the Taproot key-path spend with
 <code>d = b_spend + t_k</code>.
 
 ===Privacy===
