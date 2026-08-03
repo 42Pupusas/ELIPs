@@ -1,13 +1,8 @@
-"""Silent Payments for the Liquid Network — reference implementation.
+"""Silent Payments for the Liquid Network — reference implementation. INSECURE, test vectors only.
 
-Same style as the BIP-352 reference (secp256k1lab for the curve algebra, so the
-spec math reads literally). INSECURE — for test vectors only.
-
-Everything up to and including the output public key P_k is BIP-352, unchanged.
-The two Liquid-specific additions are the per-output blinding key bk_k (tag
-LiquidSilentPayments/Blind) and the Confidential Transactions plumbing
-(build_confidential_sp_txout / unblind_output), which is the only part that
-needs Liquid primitives and so uses wallycore rather than secp256k1lab.
+Up to P_k this is BIP-352 unchanged (secp256k1lab, matching the BIP-352 reference).
+The Liquid-specific additions are bk_k (tag LiquidSilentPayments/Blind) and the CT
+plumbing below, which needs wallycore instead of secp256k1lab.
 """
 
 from typing import Dict, List, Tuple
@@ -19,14 +14,11 @@ import bech32m
 
 TAG_INPUTS = "BIP0352/Inputs"
 TAG_SHARED_SECRET = "BIP0352/SharedSecret"
-# Disjoint from BIP0352/SharedSecret, so bk_k and t_k are independent even
-# though both are derived from the same shared secret S.
-TAG_BLIND = "LiquidSilentPayments/Blind"
+TAG_BLIND = "LiquidSilentPayments/Blind"  # disjoint from TAG_SHARED_SECRET: bk_k and t_k stay independent
 
-SP_ADDRESS_VERSION = 0  # Bech32 character `q`.
+SP_ADDRESS_VERSION = 0  # Bech32 character `q`
 
-# HRP per network. Distinct from Liquid's ex/lq (and testnet tex/tlq) prefixes.
-_HRP = {"liquid": "lqsp", "liquid-testnet": "tlqsp", "liquid-regtest": "tlqsp"}
+_HRP = {"liquid": "lqsp", "liquid-testnet": "tlqsp", "liquid-regtest": "tlqsp"}  # distinct from ex/lq, tex/tlq
 
 
 def ser_uint32(n: int) -> bytes:
@@ -61,11 +53,7 @@ def decode_silent_payment_address(address: str, network: str = "liquid") -> Tupl
 
 
 def sum_input_privkeys(input_priv_keys: List[Tuple[Scalar, bool]]) -> Scalar:
-    """Sum eligible input private keys, applying BIP-352 even-Y normalization.
-
-    Each entry is (private_key, is_taproot). A taproot (BIP-341) prevout commits
-    only to the x-only key, so if a*G has odd Y, negate a first.
-    """
+    """Sum eligible input keys; negate taproot keys with odd-Y a*G (x-only commitment)."""
     negated = []
     for a, is_taproot in input_priv_keys:
         if is_taproot and not (a * G).has_even_y():
@@ -75,10 +63,7 @@ def sum_input_privkeys(input_priv_keys: List[Tuple[Scalar, bool]]) -> Scalar:
 
 
 def get_input_hash(outpoints: List[bytes], A: GE) -> Scalar:
-    """input_hash = tagged_hash("BIP0352/Inputs", lowest_outpoint || serP(A)).
-
-    Each outpoint is 36 bytes: txid (32) || vout (4, little-endian).
-    """
+    """input_hash = tagged_hash("BIP0352/Inputs", lowest_outpoint || serP(A)); outpoint = txid(32) || vout(4, LE)."""
     lowest = sorted(outpoints)[0]
     h = tagged_hash(TAG_INPUTS, lowest + A.to_bytes_compressed())
     return Scalar.from_bytes_checked(h)
@@ -107,8 +92,7 @@ def output_spend_privkey(b_spend: Scalar, S: GE, k: int) -> Scalar:
     return b_spend + output_tweak(S, k)
 
 
-# Labels (BIP-352, unchanged on Liquid). A label lets the receiver tag a spend
-# key so incoming payments can be attributed to a source without publishing
+# Labels (BIP-352, unchanged): tag a spend key to attribute payments without publishing
 # multiple addresses. m=0 is reserved for change and MUST never be handed out.
 
 
@@ -132,12 +116,7 @@ def labeled_output_spend_privkey(
 
 
 def blinding_privkey(S: GE, k: int) -> Scalar:
-    """bk_k = tagged_hash("LiquidSilentPayments/Blind", serP(S) || ser32(k)).
-
-    Per the ELIP, if the hash is 0 or >= n this MUST be treated as a failure,
-    matching BIP-352's handling of an out-of-range t_k (which also fails, not
-    skips). from_bytes_checked raises on 0 or >= n.
-    """
+    """bk_k = tagged_hash(TAG_BLIND, serP(S) || ser32(k)); 0/>=n MUST fail (from_bytes_checked raises), per ELIP/BIP-352 t_k."""
     h = tagged_hash(TAG_BLIND, S.to_bytes_compressed() + ser_uint32(k))
     return Scalar.from_bytes_checked(h)
 
@@ -147,8 +126,7 @@ def script_pubkey(P_k: GE) -> bytes:
     return bytes([0x51, 0x20]) + P_k.to_bytes_xonly()
 
 
-# Tweak server: publishes T = input_hash * A per transaction; a client holding
-# b_scan computes S = b_scan * T without learning any private key.
+# Tweak server: publishes T = input_hash * A; a client with b_scan computes S = b_scan * T, no private key leaked.
 
 
 def compute_tweak(input_pubkeys: List[GE], outpoints: List[bytes]) -> Tuple[GE, Scalar, GE]:
@@ -177,11 +155,8 @@ def build_confidential_sp_txout(
     ephemeral_sk: Scalar,
     input_assets: List[Tuple[bytes, bytes, bytes]],
 ) -> Dict[str, bytes]:
-    """Build a confidential output blinded to BK_k.
-
-    input_assets lists, per transaction input, its (asset_id, abf, generator),
-    feeding the asset surjection proof Liquid consensus requires (independent
-    of the silent-payments derivation).
+    """Build a confidential output blinded to BK_k. input_assets is per-input (asset_id, abf, generator)
+    for the surjection proof Liquid consensus requires (independent of the SP derivation).
     """
     import os
 
