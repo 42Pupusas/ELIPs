@@ -65,6 +65,7 @@ would link a receiver's outputs) and an interactive per-output exchange.
 ===Differences from BIP-352===
 
 * '''Output format.''' The output is a ''confidential'' Liquid Taproot<ref name="bip341" /> output, with its asset and amount blinded to <code>BK_k</code>, rather than a bare Taproot output.
+* '''Unblinding does not affect scanning.''' A cryptographic match at index <code>k</code> MUST increment <code>k</code> and continue scanning, even if the output cannot be unblinded; otherwise a sender could truncate a receiver's scan with a single matching but unblindable output.
 * '''<code>outpoint_L</code> encoding.''' Outpoints use the Elements consensus encoding: the 36-byte concatenation of the 32-byte txid followed by the 4-byte little-endian <code>vout</code>. The txid is in ''internal byte order'', i.e. the raw 32 bytes output by the double-SHA256 of the serialized transaction, exactly as they appear inside a serialized transaction input — the ''reverse'' of the big-endian hex string displayed by RPC interfaces and block explorers. For example, output <code>vout = 1</code> of the transaction displayed as
 
  <code>112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00</code>
