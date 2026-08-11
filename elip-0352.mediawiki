@@ -1,10 +1,10 @@
 <pre>
-ELIP: ?
+ELIP: 352
 Layer: Applications
 Title: Silent Payments for the Liquid Network
 Author: 42pupusas <technology@illuminodes.com>
 Comments-Summary: No comments yet.
-Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-????
+Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0352
 Status: Draft
 Type: Standards Track
 Created: 2026-06-01
@@ -167,7 +167,7 @@ Wallets that don't implement this are unaffected.
 
 A Python reference implementation, in the style of the canonical BIP-352
 reference, reproduces the test vectors below byte-for-byte and demonstrates
-non-interactive unblinding of the shared-secret-blinded output: [[elip-silent-payments-liquid/reference.py|elip-silent-payments-liquid/reference.py]]. Wallet integration — scanning, signing, and transaction building — is left to implementations.
+non-interactive unblinding of the shared-secret-blinded output: [[elip-0352/reference.py|elip-0352/reference.py]]. Wallet integration — scanning, signing, and transaction building — is left to implementations.
 
 ==Acknowledgements==
 
