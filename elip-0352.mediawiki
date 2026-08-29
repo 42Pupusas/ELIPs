@@ -4,7 +4,7 @@ Layer: Applications
 Title: Silent Payments for the Liquid Network
 Author: 42pupusas <technology@illuminodes.com>
 Comments-Summary: No comments yet.
-Comments-URI: https://github.com/ElementsProject/elips/wiki/Comments:ELIP-0352
+Comments-URI: TBD
 Status: Draft
 Type: Standards Track
 Created: 2026-06-01
@@ -72,10 +72,10 @@ would link a receiver's outputs) and an interactive per-output exchange.
 
 is encoded as the 36 bytes
 
- <code>00ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211 01000000</code>
+ <code>00ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221101000000</code>
 
 The test-vector txids below are given in internal byte order. Elements also overloads the high bits of <code>vout</code> as issuance (bit 31) and peg-in (bit 30) flags, cleared when the input is parsed<ref name="elementsflags">Elements <code>COutPoint::OUTPOINT_ISSUANCE_FLAG</code> / <code>OUTPOINT_PEGIN_FLAG</code>. https://github.com/ElementsProject/elements/blob/master/src/primitives/transaction.h</ref>; <code>vout</code> here is always the parsed index with both flags cleared (equivalently, <code>vout & 0x3fffffff</code>), matching what every implementation already has after deserializing the transaction. A coinbase input's <code>vout = 0xffffffff</code> carries no flags and is unaffected.
-* '''Input eligibility for peg-ins and issuances.''' A peg-in input spends a Bitcoin-chain output that a Liquid-only client cannot inspect, so it MUST be excluded from the eligible-input list in [[#inputs-for-shared-secret-derivation|Inputs For Shared Secret Derivation]] — it contributes no public key to <code>a</code>/<code>A</code> — but its outpoint still participates in <code>outpoint_L</code>, since that is read from the Liquid transaction itself. An input carrying an asset issuance or reissuance is eligible under BIP-352's normal rules unchanged; an issuance does not alter how the input is spent or its scriptPubKey.
+* '''Input eligibility for peg-ins and issuances.''' A peg-in input spends a Bitcoin-chain output that a Liquid-only client cannot inspect, so it MUST be excluded from the eligible-input list in [https://github.com/bitcoin/bips/blob/master/bip-0352.mediawiki#inputs-for-shared-secret-derivation BIP-352 "Inputs For Shared Secret Derivation"] — it contributes no public key to <code>a</code>/<code>A</code> — but its outpoint still participates in <code>outpoint_L</code>, since that is read from the Liquid transaction itself. An input carrying an asset issuance or reissuance is eligible under BIP-352's normal rules unchanged; an issuance does not alter how the input is spent or its scriptPubKey.
 * '''Key derivation path.''' Scan and spend keys use the BIP-352 derivation scheme with the coin type replaced by SLIP-44<ref name="slip44">SLIP-0044: Registered coin types for BIP-0044. https://github.com/satoshilabs/slips/blob/master/slip-0044.md</ref> code 1776 (Liquid): <code>scan_key: m/352'/1776'/account'/1'/0</code> and <code>spend_key: m/352'/1776'/account'/0'/0</code> for mainnet, with coin type <code>1'</code> for testnet and regtest. This keeps Liquid silent-payment keys disjoint from a wallet's Bitcoin silent-payment keys (<code>m/352'/0'/...</code>).
 * '''Address HRP.''' The human-readable part is <code>lqsp</code> (mainnet) or <code>tlqsp</code> (testnet and regtest) — distinct from <code>ex</code>/<code>tex</code>, <code>lq</code>/<code>tlq</code>, and Bitcoin's <code>sp</code>/<code>tsp</code>. The address payload, version symbol (<code>q</code>), and relaxed Bech32 length limit are unchanged from BIP-352.
 * '''Light-client scanning.''' BIP-158<ref name="bip158">BIP-158: Compact Block Filters for Light Clients. https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki</ref> compact filters are unchanged: Elements implements BIP-157/158 identically to Bitcoin Core (<code>NODE_COMPACT_FILTERS</code>, <code>getcfilters</code>/<code>getcfheaders</code>/<code>getcfcheckpt</code>, and the <code>getblockfilter</code> RPC), and filters are built from scriptPubKeys, which CT never blinds. A light client scans for candidate <code>P_k</code> the same way as on Bitcoin, downloading a full block only on a filter match.
